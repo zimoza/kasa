@@ -480,8 +480,13 @@
     return new File([u8], name, { type: mime });
   }
 
-  // Dosyayı çeşitli platformlardan paylaş (WhatsApp, Mail, AirDrop vb. - iOS paylaşım menüsü)
+  // GÜVENLİK: Düz (şifresiz) paylaşım kapatıldı - her paylaşım şifreli pakete yönlendirilir
   async function shareFile(idx) {
+    return shareEncrypted(idx);
+  }
+
+  // (Kullanım dışı - düz paylaşım güvenlik nedeniyle devre dışı bırakıldı)
+  async function shareFilePlain_DISABLED(idx) {
     if (!isUnlocked) { alert('Paylaşmak için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
@@ -1100,7 +1105,7 @@
         <span>${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
         <small style="margin-left:auto">${f.size}</small>
         ${isUnlocked ? `
-          <button onclick="shareFile(${i})" title="Paylaş / Gönder" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">📤</button>
+          <button onclick="shareEncrypted(${i})" title="Şifreli Paylaş (.nkasa)" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">📤🔐</button>
           <button onclick="deleteFile(${i})" title="Sil" style="background:var(--red);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">🗑️</button>
         ` : ''}
       </div>
