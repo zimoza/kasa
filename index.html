@@ -200,6 +200,9 @@
     <div id="cloud-info" style="font-size:11px; text-align:center; color:var(--green); display:none;">☁️ Bulut senkronizasyonu aktif</div>
     <label class="btn btn-ghost" for="file-input">➕ Dosya Ekle</label>
     <input type="file" id="file-input" multiple style="display:none" onchange="uploadToCloud(this)">
+    <label class="btn btn-primary" for="nkasa-input">🔐 Şifreli Paket Aç (.nkasa)</label>
+    <input type="file" id="nkasa-input" accept=".nkasa,application/json" style="display:none" onchange="importEncryptedFile(this)">
+    <div style="font-size:11px;text-align:center;color:var(--text2);">📤🔐 ile paylaşılan şifreli paketler yalnızca bu uygulama ve paket şifresi ile açılabilir.</div>
     <div id="vault-files" style="margin-top:20px;"></div>
   </div>
 
@@ -242,6 +245,190 @@
     catch (e) { console.log('Yerel kayıt sığmadı (dosya çok büyük olabilir):', e); }
   }
 
+  // ==== PAKET ŞİFRELERİ & KİŞİSEL (MASTER) ŞİFRE ====
+
+  // Basit hash (şifreleri düz metin saklamamak için - djb2)
+  function simpleHash(str) {
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+    return 'h' + h.toString(36);
+  }
+
+  // Kişisel (master) şifre - ilk kullanımda oluşturulur
+  function ensureMasterPassword() {
+    let mh = localStorage.getItem('nk_master_hash');
+    if (!mh) {
+      const p1 = prompt('İlk kullanım: Kişisel şifrenizi belirleyin.\n(Acil paket şifresi değişikliklerinde bu şifre sorulacaktır)');
+      if (!p1) return false;
+      const p2 = prompt('Kişisel şifrenizi tekrar girin:');
+      if (p1 !== p2) { alert('Şifreler eşleşmedi. Tekrar deneyin.'); return false; }
+      localStorage.setItem('nk_master_hash', simpleHash(p1));
+      alert('✅ Kişisel şifreniz kaydedildi.');
+    }
+    return true;
+  }
+
+  // Kişisel şifreyi doğrula
+  function verifyMasterPassword() {
+    if (!ensureMasterPassword()) return false;
+    const p = prompt('🔐 Kişisel şifrenizi girin:');
+    if (p === null) return false;
+    if (simpleHash(p) !== localStorage.getItem('nk_master_hash')) {
+      alert('❌ Kişisel şifre yanlış!');
+      return false;
+    }
+    return true;
+  }
+
+  // Paket şifresini doğrula (dosya işlemi öncesi) - şifrenin kendisini döndürür
+  function askPackagePassword(f) {
+    const p = prompt(`📦 "${f.pkgName || f.name}" paketinin şifresini girin:`);
+    if (p === null) return null;
+    if (f.passHash && simpleHash(p) !== f.passHash) { alert('❌ Paket şifresi yanlış!'); return null; }
+    return p;
+  }
+  function verifyPackagePassword(f) {
+    if (!f.passHash) return true; // eski kayıtlar şifresiz olabilir
+    return askPackagePassword(f) !== null;
+  }
+
+  // ACİL ŞİFRE DEĞİŞİKLİĞİ: önce kişisel şifre doğrulanır
+  function changePackagePassword(idx) {
+    if (!isUnlocked) { alert('Şifre değiştirmek için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    if (!verifyMasterPassword()) return; // kişisel şifre şart!
+    const np = prompt(`"${f.pkgName || f.name}" paketi için YENİ şifreyi girin:`);
+    if (!np) { alert('Şifre boş olamaz, değişiklik yapılmadı.'); return; }
+    const newHash = simpleHash(np);
+    const pkg = f.pkg;
+    fileList.forEach(x => { if (pkg && x.pkg === pkg) x.passHash = newHash; });
+    if (!pkg) f.passHash = newHash;
+    persistFiles();
+    syncFilesToCloud();
+    alert('✅ Paket şifresi acil olarak değiştirildi.');
+    renderFiles();
+  }
+
+  // Dosya meta verilerini buluta yaz (şifre hash'i dahil)
+  function syncFilesToCloud() {
+    if (db && vaultID) {
+      db.collection("vaults").doc(vaultID).set({
+        files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null }))
+      }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
+    }
+  }
+
+  // ==== ŞİFRELİ PAYLAŞIM (.nkasa - sadece bu uygulama açabilir) ====
+
+  const NKASA_MAGIC = 'NESNEKASA-ENC';
+
+  function bufToB64(buf) {
+    const u8 = new Uint8Array(buf); let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function b64ToBuf(b64) {
+    const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  // Paket şifresinden AES-GCM anahtarı türet (PBKDF2)
+  async function deriveKey(password, salt) {
+    const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: 150000, hash: 'SHA-256' },
+      keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+  }
+
+  // ŞİFRELİ PAYLAŞ: dosya AES-256-GCM ile şifrelenip .nkasa paketi olarak gönderilir.
+  // Bu paket yalnızca NesneKasa uygulaması + doğru paket şifresi ile açılabilir.
+  async function shareEncrypted(idx) {
+    if (!isUnlocked) { alert('Paylaşmak için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
+    if (!crypto || !crypto.subtle) { alert('⚠️ Şifreleme bu ortamda desteklenmiyor (HTTPS gerekli).'); return; }
+
+    // Paket şifresini iste ve doğrula - aynı şifre şifreleme anahtarı olur
+    let pass = f.passHash ? askPackagePassword(f) : prompt('Bu şifreli paket için bir şifre belirleyin:');
+    if (!pass) return;
+
+    try {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(pass, salt);
+      const plain = new TextEncoder().encode(JSON.stringify({ name: f.name, size: f.size, data: f.data }));
+      const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, plain);
+
+      const envelope = {
+        magic: NKASA_MAGIC, v: 1, app: 'NesneKasa',
+        pkgName: f.pkgName || f.name,
+        salt: bufToB64(salt), iv: bufToB64(iv), ct: bufToB64(cipher),
+        created: Date.now()
+      };
+      const outName = (f.name.replace(/\.[^.]+$/, '') || 'paket') + '.nkasa';
+      const blob = new Blob([JSON.stringify(envelope)], { type: 'application/octet-stream' });
+      const file = new File([blob], outName, { type: 'application/octet-stream' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: outName });
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = outName;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      }
+      alert('🔐 Dosya şifreli paket (.nkasa) olarak paylaşıldı.\nKarşı taraf yalnızca NesneKasa uygulaması ve paket şifresi ile açabilir.');
+    } catch (e) {
+      if (e && e.name !== 'AbortError') { console.error('Şifreli paylaşım hatası:', e); alert('Şifreli paylaşım başarısız: ' + e.message); }
+    }
+  }
+
+  // ŞİFRELİ PAKET AÇ: .nkasa dosyasını yalnızca bu uygulama + doğru şifre çözer
+  async function importEncryptedFile(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (!crypto || !crypto.subtle) { alert('⚠️ Şifre çözme bu ortamda desteklenmiyor (HTTPS gerekli).'); return; }
+    try {
+      const text = await file.text();
+      let env;
+      try { env = JSON.parse(text); } catch (e) { alert('❌ Bu dosya geçerli bir NesneKasa paketi değil.'); return; }
+      if (!env || env.magic !== NKASA_MAGIC) { alert('❌ Bu dosya NesneKasa ile oluşturulmamış, açılamaz.'); return; }
+
+      const pass = prompt(`🔐 "${env.pkgName || 'Şifreli paket'}" paketinin şifresini girin:`);
+      if (!pass) return;
+
+      const key = await deriveKey(pass, b64ToBuf(env.salt));
+      let plainBuf;
+      try {
+        plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBuf(env.iv) }, key, b64ToBuf(env.ct));
+      } catch (e) {
+        alert('❌ Şifre yanlış! Paket açılamadı.');
+        return;
+      }
+      const payload = JSON.parse(new TextDecoder().decode(plainBuf));
+
+      // Çözülen dosyayı kasaya ekle (paket şifresi korunur)
+      fileList.push({
+        name: payload.name, size: payload.size, date: Date.now(), data: payload.data,
+        pkg: 'pkg_import_' + Date.now(), pkgName: env.pkgName || payload.name, passHash: simpleHash(pass)
+      });
+      persistFiles();
+      syncFilesToCloud();
+      renderFiles();
+      alert(`✅ "${payload.name}" şifresi çözülerek kasaya eklendi.`);
+    } catch (e) {
+      console.error('Paket açma hatası:', e);
+      alert('Paket açılamadı: ' + e.message);
+    }
+  }
+
+  // ==== /ŞİFRELİ PAYLAŞIM ====
+
   // Kurulum ekranında kilit durumunu net göster
   function updateLockStatus() {
     let box = document.getElementById('lock-status');
@@ -279,6 +466,8 @@
     const f = fileList[idx];
     if (!f) return;
     if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
+    // Karşıya göndermeden önce pakete özel şifreyi doğrula
+    if (!verifyPackagePassword(f)) return;
     try {
       const file = dataURLtoFile(f.data, f.name);
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -299,12 +488,12 @@
     if (!isUnlocked) { alert('Silmek için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
+    // Silmeden önce pakete özel şifreyi doğrula
+    if (!verifyPackagePassword(f)) return;
     if (!confirm(`"${f.name}" silinsin mi?`)) return;
     fileList.splice(idx, 1);
     persistFiles();
-    if (db && vaultID) {
-      db.collection("vaults").doc(vaultID).set({ files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date })) }, { merge: true }).catch(e => console.log('Bulut silme hatası:', e));
-    }
+    syncFilesToCloud();
     renderFiles();
   }
 
@@ -561,7 +750,18 @@
   // Buluta Dosya Yükleme (Simüle Edilmiş/Hazırlanmış)
   async function uploadToCloud(input) {
     if(!vaultID) { alert("Önce bir Kasa Kimliği belirleyin!"); return; }
-    
+    if(!input.files.length) return;
+
+    // Kişisel şifre henüz yoksa ilk kullanımda oluşturt
+    if (!ensureMasterPassword()) { input.value = ''; return; }
+
+    // Bu yükleme bir "dosya paketi" sayılır -> pakete özel isim ve şifre iste
+    const pkgName = prompt('Bu dosya paketine bir isim verin:', 'Paket ' + new Date().toLocaleString('tr-TR')) || ('Paket-' + Date.now());
+    const pkgPass = prompt(`"${pkgName}" paketi için AYRI bir şifre belirleyin:\n(Karşıya gönderim/paylaşım öncesi bu şifre sorulacaktır)`);
+    if (!pkgPass) { alert('Paket şifresi zorunludur. Yükleme iptal edildi.'); input.value = ''; return; }
+    const pkgId = 'pkg_' + Date.now();
+    const passHash = simpleHash(pkgPass);
+
     for (let f of input.files) {
       // Dosya içeriğini dataURL olarak oku -> paylaşım ve indirme mümkün olsun
       const dataUrl = await new Promise((resolve, reject) => {
@@ -570,7 +770,7 @@
         r.onerror = reject;
         r.readAsDataURL(f);
       });
-      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl });
+      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl, pkg: pkgId, pkgName: pkgName, passHash: passHash });
     }
     input.value = ''; // aynı dosya tekrar seçilebilsin
 
@@ -579,9 +779,10 @@
         // Firestore'a sadece meta bilgi yaz (1MB belge limiti nedeniyle içerik yerel kalır)
         await db.collection("vaults").doc(vaultID).set({
             password: passwordObject,
-            files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date }))
+            files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null }))
         }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
+    alert(`✅ "${pkgName}" paketi kendi şifresiyle kasaya eklendi.`);
     renderFiles();
   }
 
