@@ -231,7 +231,8 @@
 
   let db, storage, model;
   let vaultID = localStorage.getItem('nk_vault_id') || "";
-  let passwordObject = null;
+  // Şifre nesnesini kalıcı yap (sayfa yenilense bile kilit açma çalışsın)
+  let passwordObject = localStorage.getItem('nk_password_object') || null;
   let isUnlocked = false;
   let fileList = [];
 
@@ -475,7 +476,11 @@
     if(!vaultID || !db) return;
     const doc = await db.collection("vaults").doc(vaultID).get();
     if(doc.exists) {
-        passwordObject = doc.data().password;
+        // Buluttaki şifre boşsa yereldekini ezme
+        if (doc.data().password) {
+          passwordObject = doc.data().password;
+          localStorage.setItem('nk_password_object', passwordObject);
+        }
         fileList = doc.data().files || [];
         renderFiles();
     }
@@ -620,6 +625,14 @@
 
     } catch (err) {
       console.error('Kamera erişim hatası:', err);
+      // iOS: sekme değişiminde eski stream tam bırakılmadan yenisi istenince
+      // NotReadableError/AbortError oluşabilir -> kısa bekleyip bir kez daha dene
+      if (err && (err.name === 'NotReadableError' || err.name === 'AbortError') && !startCamera._retried) {
+        startCamera._retried = true;
+        if (detEl) detEl.textContent = '⏳ Kamera yeniden başlatılıyor...';
+        setTimeout(() => { startCamera(screenType); startCamera._retried = false; }, 900);
+        return;
+      }
       if (detEl) {
         let msg = '⚠️ Kamera açılamadı: ' + (err && err.name ? err.name : 'bilinmeyen hata');
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
@@ -678,13 +691,31 @@
             const objName = topPrediction.className;
             
             if (screenType === 'setup') {
-              // Kurulum: şifre nesnesini kaydet
+              // Kurulum: şifre nesnesini kaydet + KALICI hale getir
               passwordObject = objName;
+              localStorage.setItem('nk_password_object', objName);
+              // Buluta da kaydet (varsa)
+              if (db && vaultID) {
+                db.collection("vaults").doc(vaultID).set({ password: objName }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
+              }
               detEl.innerHTML = `✅ Şifre Nesnesi Kayıtlı:<br><strong>${objName}</strong> (${confidence}%)`;
               detEl.style.color = 'var(--green)';
             } else if (screenType === 'unlock') {
-              // Kilit açma: eşleşme kontrolü
-              if (passwordObject && objName.toLowerCase() === passwordObject.toLowerCase()) {
+              // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
+              if (!passwordObject) {
+                detEl.innerHTML = `⚠️ Önce <strong>Kurulum</strong> sekmesinde bir şifre nesnesi kaydedin.<br><small>Görülen: ${shortName} (%${confidence})</small>`;
+                detEl.style.color = 'var(--red)';
+                return;
+              }
+              // Kilit açma: esnek eşleşme (kısa ad bazlı - "water bottle, bottle" gibi
+              // çoklu isimlerde tam eşitlik aramak kilidi açılamaz hale getiriyordu)
+              const seen = objName.toLowerCase();
+              const saved = String(passwordObject).toLowerCase();
+              const savedShort = saved.split(',')[0].trim();
+              const seenShort = seen.split(',')[0].trim();
+              const matched = seen === saved || seenShort === savedShort ||
+                              seen.includes(savedShort) || saved.includes(seenShort);
+              if (matched) {
                 detEl.innerHTML = `🔓 KİLİT AÇILDI!<br><strong>${objName}</strong> eşleşti`;
                 detEl.style.color = 'var(--green)';
                 isUnlocked = true;
