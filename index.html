@@ -263,12 +263,25 @@
     startCamera('setup');
 
     // Modeli arka planda yükle
+    const detEl = document.getElementById('det-setup');
     try {
+      if (detEl) detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor...';
+      // TFJS backend'ini hazırla (iOS'ta WebGL sorun çıkarırsa CPU'ya düş)
+      try { await tf.ready(); } catch (e) {
+        console.log('WebGL backend hazır değil, CPU deneniyor:', e);
+        await tf.setBackend('cpu'); await tf.ready();
+      }
       model = await mobilenet.load({ version: 2, alpha: 0.5 });
+      if (detEl && detEl.textContent.indexOf('⏳') === 0) {
+        detEl.textContent = 'Şifre nesnenizi gösterin...';
+      }
+      console.log('✅ Model yüklendi, tarama hazır');
     } catch (e) {
       console.error('Model yüklenemedi:', e);
-      const detEl = document.getElementById('det-setup');
-      if (detEl) detEl.textContent = '⚠️ Nesne tanıma modeli yüklenemedi (internet bağlantısını kontrol edin).';
+      if (detEl) {
+        detEl.textContent = '⚠️ Nesne tanıma modeli yüklenemedi (internet bağlantısını kontrol edin ve sayfayı yenileyin).';
+        detEl.style.color = 'var(--red)';
+      }
     }
 
     // Model yüklendikten sonra LiDAR sensörünü tespit et
@@ -594,10 +607,16 @@
       }
 
       // Video hazır olduğunda oynat ve nesne taramayı başlat
-      videoElement.onloadedmetadata = () => {
+      const beginScan = () => {
         videoElement.play().catch(e => console.log('Video autoplay hatası:', e));
         startScanning(screenType, videoElement);
       };
+      if (videoElement.readyState >= 1) {
+        // Metadata zaten yüklendiyse event bir daha tetiklenmez - hemen başlat
+        beginScan();
+      } else {
+        videoElement.onloadedmetadata = beginScan;
+      }
 
     } catch (err) {
       console.error('Kamera erişim hatası:', err);
@@ -619,11 +638,25 @@
   // Nesne tanıma taraması başlat
   function startScanning(screenType, videoElement) {
     const detEl = document.getElementById('det-' + screenType);
-    
+
+    // Çift tarama başlamasını engelle
+    if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+
+    let scanning = false; // classify bitmeden yeni tarama başlatma (iPhone'da üst üste binmeyi önler)
+
     // Her 2 saniyede bir tarama yap (çok sık tarama mobilde performans sorununa yol açar)
     scanInterval = setInterval(async () => {
-      if (!model || !videoElement.videoWidth) return;
-      
+      // Model henüz yüklenmediyse kullanıcıyı bilgilendir
+      if (!model) {
+        if (detEl && detEl.textContent.indexOf('⚠️') !== 0) {
+          detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor, lütfen bekleyin...';
+        }
+        return;
+      }
+      // Video karesi henüz hazır değilse veya önceki tarama sürüyorsa bekle
+      if (!videoElement.videoWidth || videoElement.paused || scanning) return;
+
+      scanning = true;
       try {
         const predictions = await model.classify(videoElement);
         
@@ -671,6 +704,10 @@
         }
       } catch (err) {
         console.error('Tarama hatası:', err);
+        // WebGL bağlamı düşmüş olabilir - CPU backend'e geçmeyi dene
+        try { await tf.setBackend('cpu'); await tf.ready(); } catch (e2) {}
+      } finally {
+        scanning = false;
       }
     }, 2000);
   }
