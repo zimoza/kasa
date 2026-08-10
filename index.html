@@ -658,14 +658,23 @@
 
       scanning = true;
       try {
-        const predictions = await model.classify(videoElement);
-        
+        // iOS Safari'de video elementini doğrudan classify etmek bazen sessizce
+        // başarısız olur -> kareyi bir canvas'a çizip canvas'ı sınıflandır (daha güvenilir)
+        if (!startScanning._canvas) startScanning._canvas = document.createElement('canvas');
+        const cnv = startScanning._canvas;
+        cnv.width = 224; cnv.height = 224;
+        cnv.getContext('2d').drawImage(videoElement, 0, 0, 224, 224);
+        const predictions = await model.classify(cnv);
+        console.log('Tarama sonucu:', predictions);
+
         if (predictions && predictions.length > 0) {
           const topPrediction = predictions[0];
           const confidence = (topPrediction.probability * 100).toFixed(0);
+          // İlk isim genelde yeterli (örn. "water bottle, bottle" -> "water bottle")
+          const shortName = topPrediction.className.split(',')[0];
           
-          // Yüksek güvenilirlik eşiği (>50%)
-          if (topPrediction.probability > 0.5) {
+          // Güvenilirlik eşiği (>%35 - mobil kameralarda %50 çok katıydı)
+          if (topPrediction.probability > 0.35) {
             const objName = topPrediction.className;
             
             if (screenType === 'setup') {
@@ -691,14 +700,9 @@
               }
             }
           } else {
-            // Düşük güven
-            if (lidarActive) {
-              detEl.textContent = 'LiDAR + Kamera ile tarıyor...';
-            } else {
-              detEl.textContent = screenType === 'setup' 
-                ? 'Şifre nesnenizi gösterin...' 
-                : 'Kilit açmak için tara...';
-            }
+            // Düşük güven: yine de ne gördüğünü canlı olarak göster
+            const prefix = lidarActive ? '🔬 LiDAR + Kamera tarıyor' : '🔎 Taranıyor';
+            detEl.innerHTML = `${prefix}...<br><small>Görülen: <strong>${shortName}</strong> (%${confidence})</small>`;
             detEl.style.color = 'var(--accent2)';
           }
         }
