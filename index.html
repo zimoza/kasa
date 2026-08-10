@@ -234,7 +234,79 @@
   // Şifre nesnesini kalıcı yap (sayfa yenilense bile kilit açma çalışsın)
   let passwordObject = localStorage.getItem('nk_password_object') || null;
   let isUnlocked = false;
-  let fileList = [];
+  // Dosyaları kalıcı tut (localStorage) - sayfa yenilense de kaybolmasın
+  let fileList = JSON.parse(localStorage.getItem('nk_files') || '[]');
+
+  function persistFiles() {
+    try { localStorage.setItem('nk_files', JSON.stringify(fileList)); }
+    catch (e) { console.log('Yerel kayıt sığmadı (dosya çok büyük olabilir):', e); }
+  }
+
+  // Kurulum ekranında kilit durumunu net göster
+  function updateLockStatus() {
+    let box = document.getElementById('lock-status');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'lock-status';
+      box.style.cssText = 'padding:12px;border-radius:12px;text-align:center;font-weight:bold;font-size:13px;border:1px solid var(--border);background:var(--surface2);';
+      const setupScreen = document.getElementById('screen-setup');
+      setupScreen.insertBefore(box, setupScreen.firstChild);
+    }
+    if (passwordObject) {
+      box.innerHTML = `🔒 KASA KİLİDİ OLUŞTURULDU<br><small style="font-weight:normal;color:var(--text2)">Şifre nesnesi: <strong>${passwordObject}</strong> — Yeni bir nesne taratırsanız kilit güncellenir.</small>`;
+      box.style.color = 'var(--green)';
+      box.style.borderColor = 'rgba(46,204,138,0.4)';
+    } else {
+      box.innerHTML = '🔓 Kasa kilidi henüz oluşturulmadı.<br><small style="font-weight:normal;color:var(--text2)">Kameraya bir nesne gösterip şifre nesnesi kaydedin.</small>';
+      box.style.color = 'var(--red)';
+      box.style.borderColor = 'rgba(240,94,106,0.4)';
+    }
+  }
+
+  // dataURL -> File (paylaşım için)
+  function dataURLtoFile(dataUrl, name) {
+    const arr = dataUrl.split(',');
+    const mime = (arr[0].match(/:(.*?);/) || [,'application/octet-stream'])[1];
+    const bin = atob(arr[1]);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new File([u8], name, { type: mime });
+  }
+
+  // Dosyayı çeşitli platformlardan paylaş (WhatsApp, Mail, AirDrop vb. - iOS paylaşım menüsü)
+  async function shareFile(idx) {
+    if (!isUnlocked) { alert('Paylaşmak için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
+    try {
+      const file = dataURLtoFile(f.data, f.name);
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: f.name });
+      } else {
+        // Paylaşım API yoksa indir (oradan istenen platforma gönderilebilir)
+        const a = document.createElement('a');
+        a.href = f.data; a.download = f.name;
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+    } catch (e) {
+      if (e && e.name !== 'AbortError') { console.error('Paylaşım hatası:', e); alert('Paylaşım başarısız: ' + e.message); }
+    }
+  }
+
+  // Dosyayı sil (yerel + bulut)
+  async function deleteFile(idx) {
+    if (!isUnlocked) { alert('Silmek için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    if (!confirm(`"${f.name}" silinsin mi?`)) return;
+    fileList.splice(idx, 1);
+    persistFiles();
+    if (db && vaultID) {
+      db.collection("vaults").doc(vaultID).set({ files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date })) }, { merge: true }).catch(e => console.log('Bulut silme hatası:', e));
+    }
+    renderFiles();
+  }
 
   // --- LiDAR DURUM DEĞİŞKENLERİ ---
   let lidarAvailable = false;   // Cihazda LiDAR sensörü var mı?
@@ -491,15 +563,24 @@
     if(!vaultID) { alert("Önce bir Kasa Kimliği belirleyin!"); return; }
     
     for (let f of input.files) {
-      // Gerçek bir uygulamada burada storage.ref().put(f) kullanılır
-      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime() });
+      // Dosya içeriğini dataURL olarak oku -> paylaşım ve indirme mümkün olsun
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(f);
+      });
+      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl });
     }
-    
+    input.value = ''; // aynı dosya tekrar seçilebilsin
+
+    persistFiles();
     if(db) {
+        // Firestore'a sadece meta bilgi yaz (1MB belge limiti nedeniyle içerik yerel kalır)
         await db.collection("vaults").doc(vaultID).set({
             password: passwordObject,
-            files: fileList
-        }, { merge: true });
+            files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date }))
+        }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
     renderFiles();
   }
@@ -698,8 +779,10 @@
               if (db && vaultID) {
                 db.collection("vaults").doc(vaultID).set({ password: objName }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
               }
-              detEl.innerHTML = `✅ Şifre Nesnesi Kayıtlı:<br><strong>${objName}</strong> (${confidence}%)`;
+              detEl.innerHTML = `🔒 KASA KİLİDİ OLUŞTURULDU!<br>Şifre nesnesi: <strong>${objName}</strong> (${confidence}%)`;
               detEl.style.color = 'var(--green)';
+              updateLockStatus();
+              if (navigator.vibrate) navigator.vibrate(200);
             } else if (screenType === 'unlock') {
               // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
               if (!passwordObject) {
@@ -749,16 +832,26 @@
 
   function renderFiles() {
     const container = document.getElementById('vault-files');
-    container.innerHTML = fileList.map(f => `
+    if (fileList.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;">Kasada henüz dosya yok.</div>';
+      return;
+    }
+    container.innerHTML = fileList.map((f, i) => `
       <div class="file-item">
         <span>${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
         <small style="margin-left:auto">${f.size}</small>
+        ${isUnlocked ? `
+          <button onclick="shareFile(${i})" title="Paylaş / Gönder" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">📤</button>
+          <button onclick="deleteFile(${i})" title="Sil" style="background:var(--red);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">🗑️</button>
+        ` : ''}
       </div>
     `).join('');
   }
 
   // Sayfa yüklendiğinde başlat
   init();
+  updateLockStatus();
+  renderFiles();
 </script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"f0f03d0605bf45f1a3b17cf7d5e6861f"}' crossorigin="anonymous"></script>
 </body>
