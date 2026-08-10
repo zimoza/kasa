@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NesneKasa v2.3 - Cloud Sync</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+
+<style>
+  /* Önceki stiller aynen korunuyor, ek olarak bulut durumu göstergesi: */
+  :root {
+    --bg: #0a0a0f; --surface: #13131a; --surface2: #1c1c26;
+    --border: rgba(255,255,255,0.07); --accent: #7c6dfa; --accent2: #a98cf8;
+    --green: #2ecc8a; --red: #f05e6a; --text: #f0eeff; --text2: rgba(240,238,255,0.5);
+    --font-head: 'Syne', sans-serif; --font-body: 'DM Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-body); overflow: hidden; height: 100dvh; }
+  #app { display: flex; flex-direction: column; height: 100%; max-width: 480px; margin: 0 auto; }
+  
+  header { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+  .logo { font-family: var(--font-head); font-weight: 800; font-size: 20px; }
+  .logo span { color: var(--accent2); }
+
+  .header-badges { display: flex; align-items: center; gap: 6px; }
+
+  .sync-badge { font-size: 10px; padding: 4px 8px; border-radius: 12px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+  .sync-badge.online { color: var(--green); border-color: rgba(46,204,138,0.3); }
+
+  .tabs { display: flex; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+  .tab { flex: 1; padding: 10px; font-family: var(--font-head); font-weight: 600; font-size: 12px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--text2); cursor: pointer; }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .screen { display: none; flex-direction: column; flex: 1; overflow-y: auto; padding: 16px 20px; gap: 14px; }
+  .screen.active { display: flex; }
+
+  .cam-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; position: relative; }
+  .cam-wrap { position: relative; aspect-ratio: 4/3; background: #000; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  
+  .btn { display: flex; align-items: center; justify-content: center; padding: 14px; border-radius: 10px; font-family: var(--font-head); font-weight: 700; cursor: pointer; border: none; width: 100%; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+  
+  .file-item { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; }
+  
+  .vault-id-box { background: var(--surface2); padding: 15px; border-radius: 12px; border: 1px solid var(--border); text-align: center; }
+  input#vault-id-input { background: rgba(0,0,0,0.2); border: 1px solid var(--border); color: #fff; padding: 8px; border-radius: 6px; width: 100%; text-align: center; margin-top: 10px; font-family: monospace; }
+
+  /* ==== LiDAR ÖZELLİKLERİ İÇİN EK STİLLER ==== */
+
+  /* LiDAR öneri banner'ı - üstten kayarak giren kart */
+  .lidar-banner {
+    background: linear-gradient(135deg, var(--surface2), var(--surface));
+    border: 1px solid var(--accent);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 8px 24px rgba(124,109,250,0.18);
+    transform: translateY(-24px);
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transition: max-height 0.1s;
+  }
+  .lidar-banner.show {
+    animation: lidarSlideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    pointer-events: auto;
+    max-height: 260px;
+  }
+  @keyframes lidarSlideIn {
+    from { transform: translateY(-24px); opacity: 0; }
+    to   { transform: translateY(0);     opacity: 1; }
+  }
+  .lidar-banner .lb-head { display: flex; align-items: center; gap: 10px; }
+  .lidar-banner .lb-icon {
+    font-size: 26px;
+    width: 46px; height: 46px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(124,109,250,0.15);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    flex-shrink: 0;
+  }
+  .lidar-banner .lb-text { font-size: 13px; line-height: 1.4; color: var(--text); }
+  .lidar-banner .lb-actions { display: flex; gap: 8px; }
+  .lidar-banner .lb-actions .btn { padding: 11px; font-size: 13px; }
+
+  /* iOS tarzı toggle satırı */
+  .lidar-toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px;
+  }
+  .lidar-toggle-row .lt-label {
+    font-family: var(--font-head); font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* iOS tarzı switch */
+  .ios-switch { position: relative; display: inline-block; width: 52px; height: 30px; flex-shrink: 0; }
+  .ios-switch input { opacity: 0; width: 0; height: 0; }
+  .ios-switch .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 30px; transition: 0.3s;
+  }
+  .ios-switch .slider:before {
+    content: ""; position: absolute; height: 24px; width: 24px;
+    left: 2px; top: 2px; background: #fff; border-radius: 50%;
+    transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .ios-switch input:checked + .slider {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .ios-switch input:checked + .slider:before { transform: translateX(22px); }
+  /* Devre dışı (LiDAR yok) durumu */
+  .ios-switch.disabled { opacity: 0.4; }
+  .ios-switch.disabled .slider { cursor: not-allowed; }
+  .lidar-toggle-row.disabled .lt-label { color: var(--text2); }
+
+  /* LiDAR aktif rozeti (yeşil parıltı) */
+  .lidar-badge {
+    font-size: 10px; padding: 4px 8px; border-radius: 12px;
+    background: rgba(46,204,138,0.12); border: 1px solid rgba(46,204,138,0.4);
+    color: var(--green); font-weight: 700; white-space: nowrap;
+    animation: lidarGlow 2s ease-in-out infinite;
+  }
+  @keyframes lidarGlow {
+    0%, 100% { box-shadow: 0 0 0 rgba(46,204,138,0); }
+    50%      { box-shadow: 0 0 10px rgba(46,204,138,0.5); }
+  }
+
+  /* LiDAR derinlik bilgi kutusu */
+  .lidar-depth-note {
+    font-size: 12px; color: var(--green); text-align: center;
+    padding: 8px 10px; border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="logo">Nesne<span>Kasa</span></div>
+    <div class="header-badges">
+      <div id="lidar-badge" class="lidar-badge" style="display:none;">🔬 LiDAR Aktif</div>
+      <div id="sync-status" class="sync-badge">Bulut: Çevrimdışı</div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchScreen('setup', this)">Kurulum</button>
+    <button class="tab" onclick="switchScreen('vault', this)">Kasa</button>
+    <button class="tab" onclick="switchScreen('unlock', this)">Kilit Aç</button>
+  </div>
+
+  <div class="screen active" id="screen-setup">
+    <div class="vault-id-box">
+      <div style="font-size:13px; font-weight:bold;">Kasa Kimliği (Erişim Kodu)</div>
+      <div style="font-size:11px; color:var(--text2);">Diğer cihazlardan bu kasaya ulaşmak için aynı kodu girin.</div>
+      <input type="text" id="vault-id-input" placeholder="Örn: ugur-kasa-123" onchange="updateVaultID()">
+    </div>
+
+    <!-- LiDAR öneri banner'ı (LiDAR tespit edilirse gösterilir) -->
+    <div class="lidar-banner" id="lidar-banner">
+      <div class="lb-head">
+        <div class="lb-icon">🔬</div>
+        <div class="lb-text">LiDAR sensörü tespit edildi! Daha hassas nesne tanıma için aktif edebilirsiniz.</div>
+      </div>
+      <div class="lb-actions">
+        <button class="btn btn-primary" onclick="onBannerActivate()">✅ LiDAR'ı Aktif Et</button>
+        <button class="btn btn-ghost" onclick="hideLidarBanner()">✖ Daha Sonra</button>
+      </div>
+    </div>
+    
+    <div class="cam-card" id="cam-section">
+      <div class="cam-wrap">
+        <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
+      </div>
+      <div id="det-setup" style="padding:15px; text-align:center; color:var(--accent2); font-weight:bold;">Şifre nesnenizi gösterin...</div>
+    </div>
+
+    <!-- LiDAR modu aç/kapa toggle satırı -->
+    <div class="lidar-toggle-row" id="lidar-toggle-row">
+      <div class="lt-label">🔬 LiDAR Modu</div>
+      <label class="ios-switch" id="lidar-switch-wrap">
+        <input type="checkbox" id="lidar-switch" onchange="onLidarToggle(this)">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="screen" id="screen-vault">
+    <div id="cloud-info" style="font-size:11px; text-align:center; color:var(--green); display:none;">☁️ Bulut senkronizasyonu aktif</div>
+    <label class="btn btn-ghost" for="file-input">➕ Dosya Ekle</label>
+    <input type="file" id="file-input" multiple style="display:none" onchange="uploadToCloud(this)">
+    <div id="vault-files" style="margin-top:20px;"></div>
+  </div>
+
+  <div class="screen" id="screen-unlock">
+    <div class="cam-card">
+      <div class="cam-wrap">
+        <video id="video-unlock" autoplay playsinline muted webkit-playsinline></video>
+      </div>
+      <div id="det-unlock" style="padding:15px; text-align:center; color:var(--accent2); font-weight:bold;">Kilit açmak için tara...</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+
+<script>
+  // --- FIREBASE YAPILANDIRMASI ---
+  // Firebase konsolundan aldığın bilgileri buraya eklemelisin:
+  const firebaseConfig = {
+    apiKey: "AIzaSyB84zMwaUWystxeS5tfJHQFu_BZwa0hsWU",
+  authDomain: "kalkan-764de.firebaseapp.com",
+  projectId: "kalkan-764de",
+  storageBucket: "kalkan-764de.firebasestorage.app",
+  messagingSenderId: "737424037143",
+  appId: "1:737424037143:web:72542378b4a9c518a6d352",
+  measurementId: "G-6144YKF5F3"
+  };
+
+  let db, storage, model;
+  let vaultID = localStorage.getItem('nk_vault_id') || "";
+  let passwordObject = null;
+  let isUnlocked = false;
+  let fileList = [];
+
+  // --- LiDAR DURUM DEĞİŞKENLERİ ---
+  let lidarAvailable = false;   // Cihazda LiDAR sensörü var mı?
+  let lidarActive = false;      // LiDAR modu aktif mi?
+  let xrSession = null;         // Aktif WebXR AR oturumu (varsa)
+
+  // Uygulama Başlatma
+  async function init() {
+    document.getElementById('vault-id-input').value = vaultID;
+    
+    // Firebase Başlatma (Eğer config doluysa)
+    try {
+      if (typeof firebase !== 'undefined' && firebaseConfig.apiKey) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        storage = firebase.storage();
+        document.getElementById('sync-status').textContent = "Bulut: Hazır";
+        document.getElementById('sync-status').classList.add('online');
+        loadVaultFromCloud();
+      }
+    } catch (e) {
+      console.log('Firebase başlatılamadı:', e);
+    }
+
+    // Kamerayı HEMEN başlat (model yüklenmesini bekleme - iPhone'da
+    // izin istemi kullanıcı etkileşimine yakın olmalı, gecikme sorun yaratır)
+    startCamera('setup');
+
+    // Modeli arka planda yükle
+    try {
+      model = await mobilenet.load({ version: 2, alpha: 0.5 });
+    } catch (e) {
+      console.error('Model yüklenemedi:', e);
+      const detEl = document.getElementById('det-setup');
+      if (detEl) detEl.textContent = '⚠️ Nesne tanıma modeli yüklenemedi (internet bağlantısını kontrol edin).';
+    }
+
+    // Model yüklendikten sonra LiDAR sensörünü tespit et
+    await detectLiDAR();
+    applyLidarUI();
+  }
+
+  // ==== LiDAR TESPİT & YÖNETİMİ ====
+
+  // 1) Başlangıçta LiDAR sensörünü tespit et
+  async function detectLiDAR() {
+    lidarAvailable = false;
+
+    // WebXR immersive-ar desteği kontrolü
+    // (yalnızca LiDAR'lı cihazlarda -iPhone 12 Pro+, M1+ iPad Pro- iOS Safari'de true döner)
+    try {
+      if (navigator.xr && navigator.xr.isSessionSupported) {
+        const supported = await navigator.xr.isSessionSupported('immersive-ar');
+        if (supported) {
+          lidarAvailable = true;
+          console.log('✅ LiDAR sensörü tespit edildi (WebXR AR destekli)');
+        } else {
+          console.log('ℹ️ Bu cihazda LiDAR sensörü bulunamadı');
+        }
+      } else {
+        console.log('ℹ️ WebXR desteği yok (eski tarayıcı veya LiDAR\'sız cihaz)');
+      }
+    } catch (e) {
+      console.log('⚠️ WebXR AR desteği kontrol edilemedi:', e);
+    }
+
+    return lidarAvailable;
+  }
+
+  // LiDAR tespit sonucuna göre arayüzü hazırla
+  function applyLidarUI() {
+    const toggleRow = document.getElementById('lidar-toggle-row');
+    const switchWrap = document.getElementById('lidar-switch-wrap');
+    const switchInput = document.getElementById('lidar-switch');
+
+    if (lidarAvailable) {
+      // Toggle'ı etkinleştir
+      toggleRow.classList.remove('disabled');
+      switchWrap.classList.remove('disabled');
+      switchInput.disabled = false;
+      toggleRow.removeAttribute('title');
+      // Öneri banner'ını kayarak göster
+      showLidarBanner();
+    } else {
+      // Toggle'ı devre dışı bırak + tooltip
+      toggleRow.classList.add('disabled');
+      switchWrap.classList.add('disabled');
+      switchInput.disabled = true;
+      toggleRow.setAttribute('title', 'Bu cihazda LiDAR sensörü bulunamadı');
+    }
+  }
+
+  // 2) Öneri banner'ını göster / gizle
+  function showLidarBanner() {
+    document.getElementById('lidar-banner').classList.add('show');
+  }
+  function hideLidarBanner() {
+    document.getElementById('lidar-banner').classList.remove('show');
+  }
+  function onBannerActivate() {
+    activateLiDAR();
+    hideLidarBanner();
+    // Toggle'ı da senkronize et
+    document.getElementById('lidar-switch').checked = true;
+  }
+
+  // 3) Toggle değişimi
+  function onLidarToggle(el) {
+    if (!lidarAvailable) { el.checked = false; return; }
+    if (el.checked) activateLiDAR();
+    else deactivateLiDAR();
+  }
+
+  // 4) LiDAR'ı aktif et
+  async function activateLiDAR() {
+    lidarActive = true;
+
+    // Header'da yeşil rozet göster
+    document.getElementById('lidar-badge').style.display = 'inline-block';
+
+    // Toggle senkron
+    document.getElementById('lidar-switch').checked = true;
+
+    // WebXR immersive-ar oturumu ile derinlik verisi almayı dene
+    let depthReady = false;
+    try {
+      if (navigator.xr && navigator.xr.isSessionSupported) {
+        const supported = await navigator.xr.isSessionSupported('immersive-ar');
+        if (supported) {
+          xrSession = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: [],
+            optionalFeatures: ['depth-sensing'],
+            depthSensing: {
+              usagePreference: ['cpu-optimized'],
+              dataFormatPreference: ['luminance-alpha']
+            }
+          });
+          // Derinlik durumunu kontrol et
+          if (xrSession && xrSession.depthUsage) {
+            depthReady = true;
+          }
+          // Oturumu hemen sonlandır (arka planda tarama akışını bozmamak için);
+          // derinlik desteğinin varlığını doğrulamış olduk.
+          if (xrSession) {
+            xrSession.addEventListener('end', () => { xrSession = null; });
+            await xrSession.end().catch(() => {});
+          }
+        }
+      }
+    } catch (e) {
+      console.log('WebXR derinlik oturumu başlatılamadı:', e);
+      depthReady = false;
+    }
+
+    // Tespit alanındaki bilgiyi güncelle
+    if (depthReady) {
+      showDepthNote('🔬 LiDAR destekli mod: Derinlik verisi ile hassas tarama aktif');
+    } else {
+      // Tarayıcı kısıtı nedeniyle derinliğe erişilemedi -> bilgilendirme
+      showDepthNote('🔬 LiDAR destekli mod: Derinlik bilgisi ile tarama');
+    }
+
+    // Hem kurulum hem kilit ekranındaki tarama metnini güncelle
+    updateDetectionTexts('LiDAR + Kamera ile tarıyor...');
+  }
+
+  // 5) LiDAR'ı devre dışı bırak
+  function deactivateLiDAR() {
+    lidarActive = false;
+
+    // Rozeti kaldır
+    document.getElementById('lidar-badge').style.display = 'none';
+
+    // Toggle senkron
+    document.getElementById('lidar-switch').checked = false;
+
+    // Varsa XR oturumunu kapat
+    if (xrSession) {
+      xrSession.end().catch(() => {});
+      xrSession = null;
+    }
+
+    // Derinlik notunu kaldır
+    removeDepthNote();
+
+    // Normal tarama metnini geri getir
+    document.getElementById('det-setup').textContent = 'Şifre nesnenizi gösterin...';
+    document.getElementById('det-unlock').textContent = 'Kilit açmak için tara...';
+  }
+
+  // Yardımcı: tespit metinlerini güncelle
+  function updateDetectionTexts(txt) {
+    const s = document.getElementById('det-setup');
+    const u = document.getElementById('det-unlock');
+    if (s) s.textContent = txt;
+    if (u) u.textContent = txt;
+  }
+
+  // Yardımcı: cam-card altına derinlik notu ekle
+  function showDepthNote(msg) {
+    let note = document.getElementById('lidar-depth-note');
+    if (!note) {
+      note = document.createElement('div');
+      note.id = 'lidar-depth-note';
+      note.className = 'lidar-depth-note';
+      const camSection = document.getElementById('cam-section');
+      camSection.appendChild(note);
+    }
+    note.textContent = msg;
+  }
+  function removeDepthNote() {
+    const note = document.getElementById('lidar-depth-note');
+    if (note) note.remove();
+  }
+
+  // ==== /LiDAR ====
+
+  function updateVaultID() {
+    vaultID = document.getElementById('vault-id-input').value;
+    localStorage.setItem('nk_vault_id', vaultID);
+    if(db) loadVaultFromCloud();
+  }
+
+  // Buluttan Veri Çekme
+  async function loadVaultFromCloud() {
+    if(!vaultID || !db) return;
+    const doc = await db.collection("vaults").doc(vaultID).get();
+    if(doc.exists) {
+        passwordObject = doc.data().password;
+        fileList = doc.data().files || [];
+        renderFiles();
+    }
+  }
+
+  // Buluta Dosya Yükleme (Simüle Edilmiş/Hazırlanmış)
+  async function uploadToCloud(input) {
+    if(!vaultID) { alert("Önce bir Kasa Kimliği belirleyin!"); return; }
+    
+    for (let f of input.files) {
+      // Gerçek bir uygulamada burada storage.ref().put(f) kullanılır
+      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime() });
+    }
+    
+    if(db) {
+        await db.collection("vaults").doc(vaultID).set({
+            password: passwordObject,
+            files: fileList
+        }, { merge: true });
+    }
+    renderFiles();
+  }
+
+  // ==== EKRAN YÖNETİMİ ====
+  
+  function switchScreen(screenName, tabEl) {
+    // Tüm ekranları gizle
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    // Tüm sekme butonlarını pasif yap
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    
+    // Seçili ekran ve sekmeyi aktif et
+    document.getElementById('screen-' + screenName).classList.add('active');
+    if (tabEl) tabEl.classList.add('active');
+    
+    // Ekran değiştiğinde kamerayı ilgili video elementine yönlendir
+    if (screenName === 'setup' || screenName === 'unlock') {
+      startCamera(screenName);
+    } else {
+      // Kamera gerektirmeyen ekranlarda stream'i ve taramayı durdur (pil/performans)
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
+      if (scanInterval) {
+        clearInterval(scanInterval);
+        scanInterval = null;
+      }
+    }
+  }
+
+  // ==== KAMERA YÖNETİMİ ====
+  
+  let currentStream = null;
+  let scanInterval = null;
+
+  async function startCamera(screenType) {
+    // Önceki stream varsa durdur
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop());
+      currentStream = null;
+    }
+    
+    // Tarama interval'ı varsa temizle
+    if (scanInterval) {
+      clearInterval(scanInterval);
+      scanInterval = null;
+    }
+
+    const videoElement = document.getElementById('video-' + screenType);
+    const detEl = document.getElementById('det-' + screenType);
+
+    // --- getUserMedia erişimini güvenli şekilde çöz (HTTP / eski tarayıcı uyumu) ---
+    // iOS Safari, kamera erişimine SADECE güvenli bağlamda (HTTPS veya localhost) izin verir.
+    // HTTP üzerinden navigator.mediaDevices tanımsız olur; bu durumda eski API'lere düş,
+    // o da yoksa kullanıcıyı net şekilde bilgilendir.
+    const legacyGUM = navigator.getUserMedia || navigator.webkitGetUserMedia ||
+                      navigator.mozGetUserMedia || navigator.msGetUserMedia;
+
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && !legacyGUM) {
+      const insecure = (location.protocol === 'http:' &&
+                        !['localhost', '127.0.0.1'].includes(location.hostname));
+      if (detEl) {
+        detEl.innerHTML = insecure
+          ? '⚠️ Kamera HTTP üzerinden açılamaz.<br>Tarayıcı güvenliği gereği sayfayı <strong>HTTPS</strong> ile açın (örn. https:// adresi veya localhost).'
+          : '⚠️ Bu tarayıcı kamera erişimini desteklemiyor.';
+        detEl.style.color = 'var(--red)';
+      }
+      return;
+    }
+
+    // Ortak getUserMedia sarmalayıcı (modern + eski API)
+    function getMedia(constraints) {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }
+      return new Promise((resolve, reject) => legacyGUM.call(navigator, constraints, resolve, reject));
+    }
+
+    try {
+      let stream;
+      try {
+        // Arka kamerayı iste (iOS için environment)
+        stream = await getMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (e1) {
+        // Kısıtlamalar reddedilirse en basit haliyle tekrar dene (iPhone uyumu)
+        console.log('Detaylı kısıtlama başarısız, basit video isteniyor:', e1);
+        stream = await getMedia({ video: true, audio: false });
+      }
+
+      currentStream = stream;
+      // iOS Safari uyumu: attribute'ları programatik olarak da garanti et
+      videoElement.setAttribute('playsinline', '');
+      videoElement.setAttribute('webkit-playsinline', '');
+      videoElement.muted = true;
+
+      if ('srcObject' in videoElement) {
+        videoElement.srcObject = stream;
+      } else {
+        // Çok eski tarayıcılar için fallback
+        videoElement.src = window.URL.createObjectURL(stream);
+      }
+
+      // Video hazır olduğunda oynat ve nesne taramayı başlat
+      videoElement.onloadedmetadata = () => {
+        videoElement.play().catch(e => console.log('Video autoplay hatası:', e));
+        startScanning(screenType, videoElement);
+      };
+
+    } catch (err) {
+      console.error('Kamera erişim hatası:', err);
+      if (detEl) {
+        let msg = '⚠️ Kamera açılamadı: ' + (err && err.name ? err.name : 'bilinmeyen hata');
+        if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+          msg = '⚠️ Kamera izni reddedildi. Ayarlar > Safari > Kamera bölümünden izin verin ve sayfayı yenileyin.';
+        } else if (err && err.name === 'NotFoundError') {
+          msg = '⚠️ Kamera bulunamadı.';
+        } else if (err && err.name === 'NotReadableError') {
+          msg = '⚠️ Kamera başka bir uygulama tarafından kullanılıyor.';
+        }
+        detEl.textContent = msg;
+        detEl.style.color = 'var(--red)';
+      }
+    }
+  }
+
+  // Nesne tanıma taraması başlat
+  function startScanning(screenType, videoElement) {
+    const detEl = document.getElementById('det-' + screenType);
+    
+    // Her 2 saniyede bir tarama yap (çok sık tarama mobilde performans sorununa yol açar)
+    scanInterval = setInterval(async () => {
+      if (!model || !videoElement.videoWidth) return;
+      
+      try {
+        const predictions = await model.classify(videoElement);
+        
+        if (predictions && predictions.length > 0) {
+          const topPrediction = predictions[0];
+          const confidence = (topPrediction.probability * 100).toFixed(0);
+          
+          // Yüksek güvenilirlik eşiği (>50%)
+          if (topPrediction.probability > 0.5) {
+            const objName = topPrediction.className;
+            
+            if (screenType === 'setup') {
+              // Kurulum: şifre nesnesini kaydet
+              passwordObject = objName;
+              detEl.innerHTML = `✅ Şifre Nesnesi Kayıtlı:<br><strong>${objName}</strong> (${confidence}%)`;
+              detEl.style.color = 'var(--green)';
+            } else if (screenType === 'unlock') {
+              // Kilit açma: eşleşme kontrolü
+              if (passwordObject && objName.toLowerCase() === passwordObject.toLowerCase()) {
+                detEl.innerHTML = `🔓 KİLİT AÇILDI!<br><strong>${objName}</strong> eşleşti`;
+                detEl.style.color = 'var(--green)';
+                isUnlocked = true;
+                renderFiles();
+                
+                // 2 saniye sonra otomatik olarak Kasa sekmesine geç
+                setTimeout(() => {
+                  document.querySelector('.tab:nth-child(2)').click();
+                }, 2000);
+              } else {
+                detEl.innerHTML = `❌ Eşleşmedi<br>Tespit: ${objName} (${confidence}%)`;
+                detEl.style.color = 'var(--red)';
+              }
+            }
+          } else {
+            // Düşük güven
+            if (lidarActive) {
+              detEl.textContent = 'LiDAR + Kamera ile tarıyor...';
+            } else {
+              detEl.textContent = screenType === 'setup' 
+                ? 'Şifre nesnenizi gösterin...' 
+                : 'Kilit açmak için tara...';
+            }
+            detEl.style.color = 'var(--accent2)';
+          }
+        }
+      } catch (err) {
+        console.error('Tarama hatası:', err);
+      }
+    }, 2000);
+  }
+
+  function renderFiles() {
+    const container = document.getElementById('vault-files');
+    container.innerHTML = fileList.map(f => `
+      <div class="file-item">
+        <span>${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
+        <small style="margin-left:auto">${f.size}</small>
+      </div>
+    `).join('');
+  }
+
+  // Sayfa yüklendiğinde başlat
+  init();
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"f0f03d0605bf45f1a3b17cf7d5e6861f"}' crossorigin="anonymous"></script>
+</body>
+</html>
