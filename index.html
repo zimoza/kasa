@@ -604,18 +604,35 @@
 
   // ==== LiDAR TESPİT & YÖNETİMİ ====
 
+  // Cihaz Apple (iPhone/iPad) mi? LiDAR sensörü yalnızca Apple cihazlarda bulunur.
+  // Android'de ARCore, WebXR immersive-ar desteğini LiDAR OLMADAN da sağlar;
+  // bu yüzden Android'de WebXR kontrolü yanlış pozitif verir - tamamen atlanır.
+  function isAppleDevice() {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    // iPadOS 13+ kendini Mac gibi tanıtır -> dokunmatik Mac = iPad
+    const isIPadOS = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+    return isIOS || isIPadOS;
+  }
+
   // 1) Başlangıçta LiDAR sensörünü tespit et
   async function detectLiDAR() {
     lidarAvailable = false;
 
+    // SADECE Apple cihazlarda kontrol yap - Android'de LiDAR sensörü yoktur.
+    if (!isAppleDevice()) {
+      console.log('ℹ️ Apple cihaz değil (Android/masaüstü) - LiDAR yok, kontrol atlandı');
+      return false;
+    }
+
     // WebXR immersive-ar desteği kontrolü
-    // (yalnızca LiDAR'lı cihazlarda -iPhone 12 Pro+, M1+ iPad Pro- iOS Safari'de true döner)
+    // (LiDAR'lı Apple cihazlarda -iPhone 12 Pro+, M1+ iPad Pro- true döner)
     try {
       if (navigator.xr && navigator.xr.isSessionSupported) {
         const supported = await navigator.xr.isSessionSupported('immersive-ar');
         if (supported) {
           lidarAvailable = true;
-          console.log('✅ LiDAR sensörü tespit edildi (WebXR AR destekli)');
+          console.log('✅ LiDAR sensörü tespit edildi (Apple cihaz + WebXR AR destekli)');
         } else {
           console.log('ℹ️ Bu cihazda LiDAR sensörü bulunamadı');
         }
