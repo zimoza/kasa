@@ -156,6 +156,21 @@
     font-size: 12px; color: var(--green); text-align: center;
     padding: 8px 10px; border-top: 1px solid var(--border);
   }
+
+  /* ==== DOSYA GÖRÜNTÜLEYİCİ (modal) ==== */
+  .viewer-overlay {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: rgba(0,0,0,0.92);
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 16px; gap: 12px;
+  }
+  .viewer-overlay.show { display: flex; }
+  .viewer-overlay img {
+    max-width: 100%; max-height: 70dvh; border-radius: 12px;
+    border: 1px solid var(--border); object-fit: contain;
+  }
+  .viewer-title { font-size: 13px; color: var(--text2); text-align: center; word-break: break-all; }
+  .viewer-actions { display: flex; gap: 8px; width: 100%; max-width: 420px; }
 </style>
 </head>
 <body>
@@ -224,6 +239,17 @@
     <input type="file" id="nkasa-input" style="display:none" onchange="importEncryptedFile(this)">
     <div style="font-size:11px;text-align:center;color:var(--text2);">📤🔐 ile paylaşılan şifreli paketler yalnızca bu uygulama ve paket şifresi ile açılabilir.</div>
     <div id="vault-files" style="margin-top:20px;"></div>
+  </div>
+
+  <!-- Dosya görüntüleyici modal -->
+  <div class="viewer-overlay" id="viewer-overlay" onclick="if(event.target===this)closeViewer()">
+    <div class="viewer-title" id="viewer-title"></div>
+    <img id="viewer-img" alt="Önizleme" style="display:none;">
+    <div id="viewer-nopreview" style="display:none;color:var(--text2);font-size:14px;text-align:center;">Bu dosya türü için önizleme yok.<br>İndirerek açabilirsiniz.</div>
+    <div class="viewer-actions">
+      <button class="btn btn-primary" onclick="saveToGallery()">💾 Galeriye Kaydet</button>
+      <button class="btn btn-ghost" onclick="closeViewer()">✖ Kapat</button>
+    </div>
   </div>
 
   <div class="screen" id="screen-unlock">
@@ -1094,6 +1120,57 @@
     }, 2000);
   }
 
+  // ==== DOSYA GÖRÜNTÜLEME & GALERİYE KAYDETME ====
+
+  let viewerIdx = null;
+
+  // Dosyaya tıklanınca: kasa açıksa uygulama içinde önizle (resimler görüntülenir)
+  function viewFile(idx) {
+    if (!isUnlocked) { alert('Görüntülemek için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
+
+    viewerIdx = idx;
+    const isImage = /^data:image\//.test(f.data) || /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(f.name);
+    const img = document.getElementById('viewer-img');
+    const noPrev = document.getElementById('viewer-nopreview');
+    document.getElementById('viewer-title').textContent = f.name;
+    if (isImage) {
+      img.src = f.data; img.style.display = 'block'; noPrev.style.display = 'none';
+    } else {
+      img.style.display = 'none'; noPrev.style.display = 'block';
+    }
+    document.getElementById('viewer-overlay').classList.add('show');
+  }
+
+  function closeViewer() {
+    document.getElementById('viewer-overlay').classList.remove('show');
+    document.getElementById('viewer-img').src = '';
+    viewerIdx = null;
+  }
+
+  // İsteğe bağlı: resmi galeriye kaydet (mobilde paylaş menüsü -> "Görüntüyü Kaydet",
+  // masaüstünde indirme olarak çalışır)
+  async function saveToGallery() {
+    if (viewerIdx === null) return;
+    const f = fileList[viewerIdx];
+    if (!f || !f.data) return;
+    try {
+      const file = dataURLtoFile(f.data, f.name);
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        // iOS/Android: paylaş menüsünden "Görüntüyü Kaydet" ile galeriye eklenir
+        await navigator.share({ files: [file], title: f.name });
+      } else {
+        const a = document.createElement('a');
+        a.href = f.data; a.download = f.name;
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+    } catch (e) {
+      if (e && e.name !== 'AbortError') { console.error('Kaydetme hatası:', e); alert('Kaydedilemedi: ' + e.message); }
+    }
+  }
+
   function renderFiles() {
     const container = document.getElementById('vault-files');
     if (fileList.length === 0) {
@@ -1102,7 +1179,7 @@
     }
     container.innerHTML = fileList.map((f, i) => `
       <div class="file-item">
-        <span>${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
+        <span onclick="viewFile(${i})" style="cursor:pointer;${isUnlocked ? 'text-decoration:underline;' : ''}" title="Görüntüle">${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
         <small style="margin-left:auto">${f.size}</small>
         ${isUnlocked ? `
           <button onclick="shareEncrypted(${i})" title="Şifreli Paylaş (.nkasa)" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">📤🔐</button>
