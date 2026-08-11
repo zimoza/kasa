@@ -221,7 +221,7 @@
     <label class="btn btn-ghost" for="file-input">➕ Dosya Ekle</label>
     <input type="file" id="file-input" multiple style="display:none" onchange="uploadToCloud(this)">
     <label class="btn btn-primary" for="nkasa-input">🔐 Şifreli Paket Aç (.nkasa)</label>
-    <input type="file" id="nkasa-input" accept=".nkasa,application/json" style="display:none" onchange="importEncryptedFile(this)">
+    <input type="file" id="nkasa-input" style="display:none" onchange="importEncryptedFile(this)">
     <div style="font-size:11px;text-align:center;color:var(--text2);">📤🔐 ile paylaşılan şifreli paketler yalnızca bu uygulama ve paket şifresi ile açılabilir.</div>
     <div id="vault-files" style="margin-top:20px;"></div>
   </div>
