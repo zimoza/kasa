@@ -238,6 +238,17 @@
     <label class="btn btn-primary" for="nkasa-input">🔐 Şifreli Paket Aç (.nkasa)</label>
     <input type="file" id="nkasa-input" style="display:none" onchange="importEncryptedFile(this)">
     <div style="font-size:11px;text-align:center;color:var(--text2);">📤🔐 ile paylaşılan şifreli paketler yalnızca bu uygulama ve paket şifresi ile açılabilir.</div>
+
+    <!-- Kapatınca sil / sakla seçeneği -->
+    <div class="lidar-toggle-row" id="retention-row">
+      <div class="lt-label">🗑️ Kapatınca Dosyaları Sil</div>
+      <label class="ios-switch">
+        <input type="checkbox" id="retention-switch" onchange="onRetentionToggle(this)">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div id="retention-note" style="font-size:11px;text-align:center;color:var(--text2);"></div>
+
     <div id="vault-files" style="margin-top:20px;"></div>
   </div>
 
@@ -286,10 +297,79 @@
   // Dosyaları kalıcı tut (localStorage) - sayfa yenilense de kaybolmasın
   let fileList = JSON.parse(localStorage.getItem('nk_files') || '[]');
 
-  function persistFiles() {
-    try { localStorage.setItem('nk_files', JSON.stringify(fileList)); }
-    catch (e) { console.log('Yerel kayıt sığmadı (dosya çok büyük olabilir):', e); }
+  // ==== DOSYA SAKLAMA MODU (kapatınca sil / sakla) ====
+  // 'delete' -> uygulama kapatılırken dosyalar silinir (bir daha açılmaz)
+  // 'keep'   -> dosyalar kalıcı saklanır (IndexedDB) ve yeniden açılır
+  let retentionMode = localStorage.getItem('nk_retention') || 'keep';
+
+  function onRetentionToggle(el) {
+    retentionMode = el.checked ? 'delete' : 'keep';
+    localStorage.setItem('nk_retention', retentionMode);
+    updateRetentionNote();
+    if (retentionMode === 'keep') persistFiles(); // sakla moduna geçince hemen kaydet
   }
+  function updateRetentionNote() {
+    const note = document.getElementById('retention-note');
+    const sw = document.getElementById('retention-switch');
+    if (sw) sw.checked = (retentionMode === 'delete');
+    if (note) note.textContent = retentionMode === 'delete'
+      ? '⚠️ Uygulama kapatılınca eklenen dosyalar SİLİNECEK ve tekrar açılamayacak.'
+      : '💾 Dosyalar cihazda saklanır; uygulama kapatılıp açılınca yeniden açılabilir.';
+  }
+
+  // ==== IndexedDB (büyük dosya içerikleri localStorage'a sığmıyordu -
+  // dosya listede görünüp AÇILAMAMASININ nedeni buydu) ====
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('nesnekasa-db', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('files');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSaveFiles(list) {
+    const dbi = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = dbi.transaction('files', 'readwrite');
+      tx.objectStore('files').put(list, 'fileList');
+      tx.oncomplete = () => { dbi.close(); resolve(); };
+      tx.onerror = () => { dbi.close(); reject(tx.error); };
+    });
+  }
+  async function idbLoadFiles() {
+    const dbi = await idbOpen();
+    return new Promise((resolve) => {
+      const tx = dbi.transaction('files', 'readonly');
+      const req = tx.objectStore('files').get('fileList');
+      req.onsuccess = () => { dbi.close(); resolve(req.result || null); };
+      req.onerror = () => { dbi.close(); resolve(null); };
+    });
+  }
+  async function idbClearFiles() {
+    try {
+      const dbi = await idbOpen();
+      const tx = dbi.transaction('files', 'readwrite');
+      tx.objectStore('files').delete('fileList');
+      tx.oncomplete = () => dbi.close();
+    } catch (e) { console.log('IDB temizlenemedi:', e); }
+  }
+
+  function persistFiles() {
+    if (retentionMode === 'delete') return; // sil modunda kalıcı kayıt yapılmaz
+    // İçerik dahil IndexedDB'ye kaydet (boyut limiti sorunu yok)
+    idbSaveFiles(fileList).catch(e => console.log('IDB kayıt hatası:', e));
+    // Meta bilgiyi localStorage'a da yaz (hızlı ilk yükleme için)
+    try { localStorage.setItem('nk_files', JSON.stringify(fileList.map(x => ({ ...x, data: null })))); }
+    catch (e) { console.log('Yerel meta kaydı yapılamadı:', e); }
+  }
+
+  // Sil modunda: uygulama kapatılırken tüm dosyaları temizle
+  window.addEventListener('pagehide', () => {
+    if (retentionMode === 'delete') {
+      localStorage.removeItem('nk_files');
+      idbClearFiles();
+    }
+  });
 
   // ==== PAKET ŞİFRELERİ & KİŞİSEL (MASTER) ŞİFRE ====
 
@@ -556,6 +636,24 @@
   // Uygulama Başlatma
   async function init() {
     document.getElementById('vault-id-input').value = vaultID;
+
+    // Saklama modu arayüzünü hazırla
+    updateRetentionNote();
+
+    // Dosyaları geri yükle
+    if (retentionMode === 'delete') {
+      // Sil modunda önceki oturumdan kalan her şeyi temizle
+      fileList = [];
+      localStorage.removeItem('nk_files');
+      idbClearFiles();
+      renderFiles();
+    } else {
+      // Sakla modunda içerik dahil IndexedDB'den yükle (dosyalar açılabilir olur)
+      try {
+        const stored = await idbLoadFiles();
+        if (stored && stored.length) { fileList = stored; renderFiles(); }
+      } catch (e) { console.log('IDB yükleme hatası:', e); }
+    }
     
     // Firebase Başlatma (Eğer config doluysa)
     try {
@@ -810,7 +908,18 @@
           passwordObject = doc.data().password;
           localStorage.setItem('nk_password_object', passwordObject);
         }
-        fileList = doc.data().files || [];
+        // Bulut sadece META bilgi tutar - yerel içerik (data) kaybolmasın diye birleştir
+        const cloudFiles = doc.data().files || [];
+        const localByKey = {};
+        fileList.forEach(x => { localByKey[x.name + '|' + x.date] = x; });
+        fileList = cloudFiles.map(cf => {
+          const loc = localByKey[cf.name + '|' + cf.date];
+          return loc && loc.data ? { ...cf, data: loc.data } : cf;
+        });
+        // Bulutta olmayan ama yerelde içeriği olan dosyaları da koru
+        Object.values(localByKey).forEach(loc => {
+          if (loc.data && !fileList.some(cf => cf.name === loc.name && cf.date === loc.date)) fileList.push(loc);
+        });
         renderFiles();
     }
   }
