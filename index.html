@@ -139,6 +139,36 @@
   /* Kurulum (şifre oluşturma) ekranı: kamera BÜYÜK gösterilsin */
   #screen-setup .cam-wrap { aspect-ratio: 3/4; min-height: 52dvh; }
 
+  /* ==== TAM EKRAN KAMERA MODU (Yeni Dosya tiki açılınca) ==== */
+  .cam-fullscreen {
+    position: fixed !important; inset: 0 !important; z-index: 998;
+    border-radius: 0 !important; border: none !important;
+    display: flex; flex-direction: column;
+    background: #000 !important;
+    max-width: none !important; width: 100vw; height: 100dvh;
+  }
+  .cam-fullscreen .cam-wrap {
+    flex: 1; aspect-ratio: auto !important; min-height: 0 !important;
+  }
+  .cam-fullscreen video { width: 100%; height: 100%; object-fit: cover; }
+  .cam-fullscreen #det-setup {
+    background: rgba(0,0,0,0.75); font-size: 15px;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+  }
+  .cam-fs-close {
+    position: absolute; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 3;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.3);
+    color: #fff; font-size: 20px; cursor: pointer; display: none;
+  }
+  .cam-fullscreen .cam-fs-close { display: block; }
+  .cam-fs-hint {
+    position: absolute; top: calc(18px + env(safe-area-inset-top)); left: 14px; right: 70px; z-index: 3;
+    color: #fff; font-size: 13px; font-weight: 700; display: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  }
+  .cam-fullscreen .cam-fs-hint { display: block; }
+
   /* Şifre nesnesinin yakalanan fotoğrafı */
   .captured-object {
     display: none; text-align: center; padding: 12px;
@@ -220,6 +250,8 @@
     <div id="newfile-note" style="font-size:11px;text-align:center;color:var(--text2);">Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.</div>
 
     <div class="cam-card" id="cam-section">
+      <button class="cam-fs-close" onclick="exitFullscreenCam()" title="Kapat">✖</button>
+      <div class="cam-fs-hint" id="cam-fs-hint">📷 Şifre nesnenizi kameraya gösterin</div>
       <div class="cam-wrap">
         <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
       </div>
@@ -314,6 +346,18 @@
   let sessionVisualPass = null;     // Bu oturumda yeni dosya için oluşturulan görsel şifre
   let unlockedVisuals = [];         // Kilit Aç ekranında bu oturumda taranan/eşleşen nesneler
 
+  // ==== TAM EKRAN KAMERA (şifre oluşturma sırasında) ====
+  function enterFullscreenCam() {
+    const cam = document.getElementById('cam-section');
+    if (cam) cam.classList.add('cam-fullscreen');
+    document.body.style.overflow = 'hidden';
+  }
+  function exitFullscreenCam() {
+    const cam = document.getElementById('cam-section');
+    if (cam) cam.classList.remove('cam-fullscreen');
+    document.body.style.overflow = '';
+  }
+
   function onNewFileToggle(el) {
     newFileMode = el.checked;
     const note = document.getElementById('newfile-note');
@@ -324,9 +368,12 @@
         note.textContent = '📷 Kameraya bir nesne gösterin; yeni dosyanın görsel şifresi BİR kez kaydedilecek.';
         const d = document.getElementById('det-setup');
         if (d) { d.textContent = 'Yeni dosyanın şifre nesnesini gösterin...'; d.style.color = 'var(--accent2)'; }
+        // Kamerayı TAM EKRAN aç - şifre oluşunca otomatik sayfaya dönülür
+        enterFullscreenCam();
       }
     } else {
       note.textContent = 'Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.';
+      exitFullscreenCam();
     }
   }
 
@@ -1279,6 +1326,8 @@
                 updateLockStatus();
                 if (navigator.vibrate) navigator.vibrate(200);
                 playBeep(); showCapturedObject(videoElement, objName);
+                // Şifre oluşturuldu -> tam ekrandan çıkıp sayfaya dön (başarı 1.5 sn gösterilir)
+                setTimeout(exitFullscreenCam, 1500);
               }
             } else if (screenType === 'unlock') {
               // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
