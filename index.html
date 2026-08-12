@@ -136,22 +136,8 @@
     50%      { box-shadow: 0 0 10px rgba(46,204,138,0.5); }
   }
 
-  /* TAM EKRAN kamera (Yeni Dosya tiki aktif olunca açılır - ana sayfada kamera görünmez) */
-  .fullscreen-cam {
-    display: none; position: fixed; inset: 0; z-index: 998;
-    background: #000; flex-direction: column;
-  }
-  .fullscreen-cam.show { display: flex; }
-  .fullscreen-cam video { flex: 1; width: 100%; height: 100%; object-fit: cover; }
-  .fullscreen-cam .fc-det {
-    padding: 15px; text-align: center; color: var(--accent2);
-    font-weight: bold; background: rgba(10,10,15,0.9); font-size: 14px;
-  }
-  .fullscreen-cam .fc-close {
-    position: absolute; top: 14px; right: 14px; z-index: 2;
-    width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border);
-    background: rgba(0,0,0,0.55); color: #fff; font-size: 18px; cursor: pointer;
-  }
+  /* Kurulum (şifre oluşturma) ekranı: kamera BÜYÜK gösterilsin */
+  #screen-setup .cam-wrap { aspect-ratio: 3/4; min-height: 52dvh; }
 
   /* Şifre nesnesinin yakalanan fotoğrafı */
   .captured-object {
@@ -223,18 +209,11 @@
       </div>
     </div>
     
-    <!-- YENİ DOSYA tiki: aktif edilince kamera TAM EKRAN açılır, görsel şifre oluşunca sayfaya dönülür.
-         (Kamera görüntüsü yer kazanmak için ana sayfada gösterilmez) -->
-    <div class="lidar-toggle-row" id="newfile-row">
-      <div class="lt-label">🆕 Yeni Dosya (Görsel Şifre Oluştur)</div>
-      <label class="ios-switch">
-        <input type="checkbox" id="newfile-switch" onchange="onNewFileToggle(this)">
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div id="cam-section" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;text-align:center;font-size:12px;color:var(--text2);">
-      📷 Yeni görsel şifre için yukarıdaki <strong>Yeni Dosya</strong> tikini aktif edin — kamera tam ekran açılır, şifre oluşunca sayfaya dönülür. Kilit açma taraması <strong>Kilit Aç</strong> sekmesindedir.
+    <div class="cam-card" id="cam-section">
+      <div class="cam-wrap">
+        <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
+      </div>
+      <div id="det-setup" style="padding:15px; text-align:center; color:var(--accent2); font-weight:bold;">Şifre nesnenizi gösterin...</div>
       <!-- Şifre nesnesi kaydedilince yakalanan fotoğraf burada gösterilir -->
       <div class="captured-object" id="captured-object">
         <img id="captured-object-img" alt="Şifre nesnesi">
@@ -282,13 +261,6 @@
       <button class="btn btn-primary" onclick="saveToGallery()">💾 Galeriye Kaydet</button>
       <button class="btn btn-ghost" onclick="closeViewer()">✖ Kapat</button>
     </div>
-  </div>
-
-  <!-- TAM EKRAN görsel şifre oluşturma kamerası (Yeni Dosya tiki ile açılır) -->
-  <div class="fullscreen-cam" id="fullscreen-cam">
-    <button class="fc-close" onclick="closeFullscreenCam()">✖</button>
-    <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
-    <div class="fc-det" id="det-setup">Şifre nesnenizi gösterin...</div>
   </div>
 
   <div class="screen" id="screen-unlock">
@@ -697,9 +669,31 @@
       console.log('Firebase başlatılamadı:', e);
     }
 
-    // Ana ekranda kamera yok - kamera yalnızca "Kilit Aç" sekmesinde açılır.
-    // Modeli arka planda yüklemeyi başlat (başarısız olursa tarama sırasında tekrar denenir)
-    ensureModel();
+    // Kamerayı HEMEN başlat (model yüklenmesini bekleme - iPhone'da
+    // izin istemi kullanıcı etkileşimine yakın olmalı, gecikme sorun yaratır)
+    startCamera('setup');
+
+    // Modeli arka planda yükle
+    const detEl = document.getElementById('det-setup');
+    try {
+      if (detEl) detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor...';
+      // TFJS backend'ini hazırla (iOS'ta WebGL sorun çıkarırsa CPU'ya düş)
+      try { await tf.ready(); } catch (e) {
+        console.log('WebGL backend hazır değil, CPU deneniyor:', e);
+        await tf.setBackend('cpu'); await tf.ready();
+      }
+      model = await mobilenet.load({ version: 2, alpha: 0.5 });
+      if (detEl && detEl.textContent.indexOf('⏳') === 0) {
+        detEl.textContent = 'Şifre nesnenizi gösterin...';
+      }
+      console.log('✅ Model yüklendi, tarama hazır');
+    } catch (e) {
+      console.error('Model yüklenemedi:', e);
+      if (detEl) {
+        detEl.textContent = '⚠️ Nesne tanıma modeli yüklenemedi (internet bağlantısını kontrol edin ve sayfayı yenileyin).';
+        detEl.style.color = 'var(--red)';
+      }
+    }
 
     // Model yüklendikten sonra LiDAR sensörünü tespit et
     await detectLiDAR();
@@ -866,11 +860,9 @@
     // Derinlik notunu kaldır
     removeDepthNote();
 
-    // Normal tarama metnini geri getir (det-setup ana ekrandan kaldırıldı - null olabilir)
-    const ds = document.getElementById('det-setup');
-    if (ds) ds.textContent = 'Şifre nesnenizi gösterin...';
-    const du = document.getElementById('det-unlock');
-    if (du) du.textContent = 'Kilit açmak için tara...';
+    // Normal tarama metnini geri getir
+    document.getElementById('det-setup').textContent = 'Şifre nesnenizi gösterin...';
+    document.getElementById('det-unlock').textContent = 'Kilit açmak için tara...';
   }
 
   // Yardımcı: tespit metinlerini güncelle
@@ -983,8 +975,8 @@
     document.getElementById('screen-' + screenName).classList.add('active');
     if (tabEl) tabEl.classList.add('active');
     
-    // Kamera yalnızca "Kilit Aç" ekranında çalışır (ana ekrandan kaldırıldı)
-    if (screenName === 'unlock') {
+    // Ekran değiştiğinde kamerayı ilgili video elementine yönlendir
+    if (screenName === 'setup' || screenName === 'unlock') {
       startCamera(screenName);
     } else {
       // Kamera gerektirmeyen ekranlarda stream'i ve taramayı durdur (pil/performans)
@@ -997,32 +989,6 @@
         scanInterval = null;
       }
     }
-  }
-
-  // ==== YENİ DOSYA TİKİ -> TAM EKRAN GÖRSEL ŞİFRE KAMERASI ====
-
-  function onNewFileToggle(el) {
-    if (el.checked) openFullscreenCam();
-    else closeFullscreenCam();
-  }
-
-  function openFullscreenCam() {
-    document.getElementById('fullscreen-cam').classList.add('show');
-    const det = document.getElementById('det-setup');
-    det.textContent = lidarActive ? 'LiDAR + Kamera ile tarıyor...' : 'Şifre nesnenizi gösterin...';
-    det.style.color = 'var(--accent2)';
-    startCamera('setup'); // tam ekran kamerada tarama başlat
-  }
-
-  function closeFullscreenCam() {
-    document.getElementById('fullscreen-cam').classList.remove('show');
-    const sw = document.getElementById('newfile-switch');
-    if (sw) sw.checked = false;
-    // Kamerayı ve taramayı durdur (pil/performans)
-    if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
-    if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
-    // Kilit Aç sekmesi açıksa oradaki kamerayı yeniden başlat
-    if (document.getElementById('screen-unlock').classList.contains('active')) startCamera('unlock');
   }
 
   // ==== KAMERA YÖNETİMİ ====
@@ -1169,35 +1135,21 @@
       cnv.height = videoElement.videoHeight || 240;
       cnv.getContext('2d').drawImage(videoElement, 0, 0, cnv.width, cnv.height);
       const dataUrl = cnv.toDataURL('image/jpeg', 0.85);
-      document.getElementById('captured-object-img').src = dataUrl;
+      const imgEl = document.getElementById('captured-object-img');
+      const boxEl = document.getElementById('captured-object');
+      imgEl.src = dataUrl;
       document.getElementById('captured-object-label').textContent = '📸 Şifre nesnesi: ' + objName;
-      document.getElementById('captured-object').style.display = 'block';
-      localStorage.setItem('nk_password_object_img', dataUrl);
+      boxEl.style.display = 'block';
+      // GÜVENLİK: Fotoğraf sadece 2 sn görünsün, sonra kaybolsun ve bellekten silinsin.
+      // Kalıcı gösterim/kayıt, şifre nesnesinin başkaları tarafından görülmesine yol açar.
+      if (showCapturedObject._timer) clearTimeout(showCapturedObject._timer);
+      showCapturedObject._timer = setTimeout(() => {
+        boxEl.style.display = 'none';
+        imgEl.src = '';
+      }, 2000);
+      // Kalıcı kayıt YAPILMAZ; eski sürümlerden kalan kaydı da temizle
+      localStorage.removeItem('nk_password_object_img');
     } catch (e) { console.log('Nesne görüntüsü alınamadı:', e); }
-  }
-
-  // ==== MODEL YÜKLEME (tekrar denemeli) ====
-  // Sorunun nedeni: model init sırasında BİR kez yükleniyordu; yükleme
-  // başarısız olursa (yavaş bağlantı, CDN hatası, WebGL sorunu) bir daha
-  // denenmiyor ve "Kilit Aç" ekranı sonsuza dek "model yükleniyor" da kalıyordu.
-  let modelLoading = false;
-  async function ensureModel() {
-    if (model || modelLoading) return model;
-    modelLoading = true;
-    try {
-      try { await tf.ready(); } catch (e) {
-        console.log('WebGL backend hazır değil, CPU deneniyor:', e);
-        await tf.setBackend('cpu'); await tf.ready();
-      }
-      model = await mobilenet.load({ version: 2, alpha: 0.5 });
-      console.log('✅ Model yüklendi, tarama hazır');
-    } catch (e) {
-      console.error('Model yüklenemedi, tekrar denenecek:', e);
-      model = null; // bir sonraki tarama döngüsünde tekrar denenir
-    } finally {
-      modelLoading = false;
-    }
-    return model;
   }
 
   // Nesne tanıma taraması başlat
@@ -1211,19 +1163,12 @@
 
     // Her 2 saniyede bir tarama yap (çok sık tarama mobilde performans sorununa yol açar)
     scanInterval = setInterval(async () => {
-      // Model henüz yüklenmediyse yüklemeyi (tekrar) dene ve kullanıcıyı bilgilendir
+      // Model henüz yüklenmediyse kullanıcıyı bilgilendir
       if (!model) {
-        if (detEl) {
-          detEl.textContent = modelLoading
-            ? '⏳ Nesne tanıma modeli yükleniyor, lütfen bekleyin...'
-            : '🔄 Model yüklenemedi, tekrar deneniyor... (internet bağlantınızı kontrol edin)';
+        if (detEl && detEl.textContent.indexOf('⚠️') !== 0) {
+          detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor, lütfen bekleyin...';
         }
-        ensureModel(); // takılı kalmasın - her döngüde yükleme tekrar denenir
         return;
-      }
-      // Model yüklendi ama ekranda hâlâ bekleme mesajı varsa temizle
-      if (detEl && (detEl.textContent.indexOf('⏳') === 0 || detEl.textContent.indexOf('🔄') === 0)) {
-        detEl.textContent = screenType === 'unlock' ? 'Kilit açmak için tara...' : 'Şifre nesnenizi gösterin...';
       }
       // Video karesi henüz hazır değilse veya önceki tarama sürüyorsa bekle
       if (!videoElement.videoWidth || videoElement.paused || scanning) return;
@@ -1264,10 +1209,6 @@
               updateLockStatus();
               if (navigator.vibrate) navigator.vibrate(200);
               if (isNewObject) { playBeep(); showCapturedObject(videoElement, objName); }
-              // Görsel şifre oluştu -> 2 sn sonra tam ekran kameradan sayfaya dön
-              if (document.getElementById('fullscreen-cam').classList.contains('show')) {
-                setTimeout(() => closeFullscreenCam(), 2000);
-              }
             } else if (screenType === 'unlock') {
               // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
               if (!passwordObject) {
