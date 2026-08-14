@@ -139,35 +139,53 @@
   /* Kurulum (şifre oluşturma) ekranı: kamera BÜYÜK gösterilsin */
   #screen-setup .cam-wrap { aspect-ratio: 3/4; min-height: 52dvh; }
 
-  /* ==== TAM EKRAN KAMERA MODU (Yeni Dosya tiki açılınca) ==== */
-  .cam-fullscreen {
-    position: fixed !important; inset: 0 !important; z-index: 998;
-    border-radius: 0 !important; border: none !important;
-    display: flex; flex-direction: column;
-    background: #000 !important;
-    max-width: none !important; width: 100vw; height: 100dvh;
+  /* Ana ekrandaki (Kurulum / görsel şifre oluşturma) kamera önizlemesi
+     varsayılan olarak GÖRÜNMEZ. Video elemanı DOM'da kalır ve akmaya devam eder
+     (tarama, nesne tanıma, şifre kaydı vb. tüm fonksiyonlar aynen çalışır),
+     sadece ekranda görünmez hale getirilir. "Yeni Dosya (Görsel Şifre Oluştur)"
+     tiki açıldığında bu gizleme kaldırılır ve tam ekran tarama moduna geçilir. */
+  #screen-setup .cam-wrap.cam-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    min-height: 0 !important;
+    aspect-ratio: unset !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   }
-  .cam-fullscreen .cam-wrap {
-    flex: 1; aspect-ratio: auto !important; min-height: 0 !important;
+
+  /* Tik açıkken: tam ekran kamera taraması */
+  #cam-section.cam-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 1000 !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    max-width: none !important;
   }
-  .cam-fullscreen video { width: 100%; height: 100%; object-fit: cover; }
-  .cam-fullscreen #det-setup {
-    background: rgba(0,0,0,0.75); font-size: 15px;
-    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+  #cam-section.cam-fullscreen .cam-wrap {
+    position: relative !important;
+    width: 100% !important;
+    flex: 1 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: unset !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
   }
-  .cam-fs-close {
-    position: absolute; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 3;
-    width: 44px; height: 44px; border-radius: 50%;
-    background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.3);
-    color: #fff; font-size: 20px; cursor: pointer; display: none;
+  #cam-section.cam-fullscreen video { height: 100%; }
+  .cam-fullscreen-close {
+    position: absolute; top: 14px; right: 14px; z-index: 1001;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(0,0,0,0.55); color: #fff; border: 1px solid var(--border);
+    font-size: 18px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
   }
-  .cam-fullscreen .cam-fs-close { display: block; }
-  .cam-fs-hint {
-    position: absolute; top: calc(18px + env(safe-area-inset-top)); left: 14px; right: 70px; z-index: 3;
-    color: #fff; font-size: 13px; font-weight: 700; display: none;
-    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
-  }
-  .cam-fullscreen .cam-fs-hint { display: block; }
+
+  /* "Yeni Dosya (Görsel Şifre Oluştur)" tik satırı */
+  .newfile-toggle-row { margin-bottom: 2px; }
 
   /* Şifre nesnesinin yakalanan fotoğrafı */
   .captured-object {
@@ -239,20 +257,18 @@
       </div>
     </div>
     
-    <!-- YENİ DOSYA modu: her oturumda yeni dosya için BİR kez görsel şifre oluşturulur -->
-    <div class="lidar-toggle-row" id="newfile-row">
-      <div class="lt-label">🆕 Yeni Dosya (görsel şifre oluştur)</div>
-      <label class="ios-switch">
+    <!-- "Yeni Dosya (Görsel Şifre Oluştur)" tik satırı: açılınca tam ekran kamera taraması başlar -->
+    <div class="lidar-toggle-row newfile-toggle-row" id="newfile-toggle-row">
+      <div class="lt-label">🆕 Yeni Dosya (Görsel Şifre Oluştur)</div>
+      <label class="ios-switch" id="newfile-switch-wrap">
         <input type="checkbox" id="newfile-switch" onchange="onNewFileToggle(this)">
         <span class="slider"></span>
       </label>
     </div>
-    <div id="newfile-note" style="font-size:11px;text-align:center;color:var(--text2);">Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.</div>
 
     <div class="cam-card" id="cam-section">
-      <button class="cam-fs-close" onclick="exitFullscreenCam()" title="Kapat">✖</button>
-      <div class="cam-fs-hint" id="cam-fs-hint">📷 Şifre nesnenizi kameraya gösterin</div>
-      <div class="cam-wrap">
+      <button type="button" class="cam-fullscreen-close" id="cam-fullscreen-close" onclick="document.getElementById('newfile-switch').click()" style="display:none;">✖</button>
+      <div class="cam-wrap cam-hidden" id="cam-wrap-setup">
         <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
       </div>
       <div id="det-setup" style="padding:15px; text-align:center; color:var(--accent2); font-weight:bold;">Şifre nesnenizi gösterin...</div>
@@ -336,59 +352,6 @@
   // Şifre nesnesini kalıcı yap (sayfa yenilense bile kilit açma çalışsın)
   let passwordObject = localStorage.getItem('nk_password_object') || null;
   let isUnlocked = false;
-
-  // ==== YENİ DOSYA GÖRSEL ŞİFRESİ (oturumluk) ====
-  // Her yeni dosya paketi için kurulumda BİR kez görsel şifre oluşturulur.
-  // Bu değişkenler KALICI DEĞİLDİR: sayfa yenilenince / uygulama kapanıp açılınca
-  // sıfırlanır -> yeni dosya için "Yeni Dosya" tiki açılıp yeni şifre oluşturulmalıdır.
-  // Eski (saklanmış) dosyaların kendi görsel şifresi (visualPass) ASLA değişmez.
-  let newFileMode = false;          // "Yeni Dosya" tiki açık mı?
-  let sessionVisualPass = null;     // Bu oturumda yeni dosya için oluşturulan görsel şifre
-  let unlockedVisuals = [];         // Kilit Aç ekranında bu oturumda taranan/eşleşen nesneler
-
-  // ==== TAM EKRAN KAMERA (şifre oluşturma sırasında) ====
-  function enterFullscreenCam() {
-    const cam = document.getElementById('cam-section');
-    if (cam) cam.classList.add('cam-fullscreen');
-    document.body.style.overflow = 'hidden';
-  }
-  function exitFullscreenCam() {
-    const cam = document.getElementById('cam-section');
-    if (cam) cam.classList.remove('cam-fullscreen');
-    document.body.style.overflow = '';
-  }
-
-  function onNewFileToggle(el) {
-    newFileMode = el.checked;
-    const note = document.getElementById('newfile-note');
-    if (newFileMode) {
-      if (sessionVisualPass) {
-        note.textContent = '✅ Bu oturum için görsel şifre zaten oluşturuldu: ' + sessionVisualPass.split(',')[0] + '. Yeni dosya ekleyebilirsiniz.';
-      } else {
-        note.textContent = '📷 Kameraya bir nesne gösterin; yeni dosyanın görsel şifresi BİR kez kaydedilecek.';
-        const d = document.getElementById('det-setup');
-        if (d) { d.textContent = 'Yeni dosyanın şifre nesnesini gösterin...'; d.style.color = 'var(--accent2)'; }
-        // Kamerayı TAM EKRAN aç - şifre oluşunca otomatik sayfaya dönülür
-        enterFullscreenCam();
-      }
-    } else {
-      note.textContent = 'Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.';
-      exitFullscreenCam();
-    }
-  }
-
-  // Esnek görsel eşleşme (kısa ad bazlı)
-  function visualMatch(a, b) {
-    if (!a || !b) return false;
-    const x = String(a).toLowerCase(), y = String(b).toLowerCase();
-    const xs = x.split(',')[0].trim(), ys = y.split(',')[0].trim();
-    return x === y || xs === ys || x.includes(ys) || y.includes(xs);
-  }
-  // Dosyanın görsel şifresi bu oturumda açıldı mı?
-  function isFileVisuallyUnlocked(f) {
-    if (!f.visualPass) return isUnlocked; // eski kayıt (dosyaya özel şifre yok) -> genel kilit yeterli
-    return unlockedVisuals.some(v => visualMatch(v, f.visualPass));
-  }
   // Dosyaları kalıcı tut (localStorage) - sayfa yenilense de kaybolmasın
   let fileList = JSON.parse(localStorage.getItem('nk_files') || '[]');
 
@@ -535,7 +498,7 @@
   function syncFilesToCloud() {
     if (db && vaultID) {
       db.collection("vaults").doc(vaultID).set({
-        files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null, visualPass: x.visualPass || null }))
+        files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null }))
       }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
   }
@@ -877,6 +840,24 @@
   }
 
   // 3) Toggle değişimi
+  // "Yeni Dosya (Görsel Şifre Oluştur)" tiki: açılınca kamera tam ekran taramaya geçer,
+  // kapatılınca tekrar gizlenir. Mevcut tarama/nesne tanıma mantığına dokunulmaz,
+  // sadece kamera önizlemesinin görünürlüğü değiştirilir.
+  function onNewFileToggle(el) {
+    const camSection = document.getElementById('cam-section');
+    const camWrap = document.getElementById('cam-wrap-setup');
+    const closeBtn = document.getElementById('cam-fullscreen-close');
+    if (el.checked) {
+      camWrap.classList.remove('cam-hidden');
+      camSection.classList.add('cam-fullscreen');
+      closeBtn.style.display = 'flex';
+    } else {
+      camSection.classList.remove('cam-fullscreen');
+      camWrap.classList.add('cam-hidden');
+      closeBtn.style.display = 'none';
+    }
+  }
+
   function onLidarToggle(el) {
     if (!lidarAvailable) { el.checked = false; return; }
     if (el.checked) activateLiDAR();
@@ -1024,13 +1005,6 @@
     if(!vaultID) { alert("Önce bir Kasa Kimliği belirleyin!"); return; }
     if(!input.files.length) return;
 
-    // YENİ DOSYA için bu oturumda oluşturulmuş görsel şifre şart
-    if (!sessionVisualPass) {
-      alert('⚠️ Yeni dosya eklemek için önce Kurulum sekmesinde "🆕 Yeni Dosya" anahtarını açıp bir nesne taratarak görsel şifre oluşturun.\n(Eski dosyaların görsel şifresi değişmez.)');
-      input.value = '';
-      return;
-    }
-
     // Kişisel şifre henüz yoksa ilk kullanımda oluşturt
     if (!ensureMasterPassword()) { input.value = ''; return; }
 
@@ -1049,8 +1023,7 @@
         r.onerror = reject;
         r.readAsDataURL(f);
       });
-      // Yeni dosyaya bu oturumda oluşturulan görsel şifre damgalanır (kalıcı, değişmez)
-      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl, pkg: pkgId, pkgName: pkgName, passHash: passHash, visualPass: sessionVisualPass });
+      fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl, pkg: pkgId, pkgName: pkgName, passHash: passHash });
     }
     input.value = ''; // aynı dosya tekrar seçilebilsin
 
@@ -1059,20 +1032,10 @@
         // Firestore'a sadece meta bilgi yaz (1MB belge limiti nedeniyle içerik yerel kalır)
         await db.collection("vaults").doc(vaultID).set({
             password: passwordObject,
-            files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null, visualPass: x.visualPass || null }))
+            files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null }))
         }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
-    // Bu dosyanın görsel şifresi açık kalsın (yeni eklenen dosyaya erişilebilsin)
-    if (!unlockedVisuals.some(v => visualMatch(v, sessionVisualPass))) unlockedVisuals.push(sessionVisualPass);
-    alert(`✅ "${pkgName}" paketi, görsel şifresi "${sessionVisualPass.split(',')[0]}" olarak kasaya eklendi.\nBir sonraki YENİ dosya için uygulamayı yenileyip "Yeni Dosya" tikini tekrar açın.`);
-    // Görsel şifre BİR dosya paketi için kullanıldı -> tüketildi.
-    // Yeni dosya için uygulama yenilenip "Yeni Dosya" tiki tekrar açılmalı.
-    sessionVisualPass = null;
-    newFileMode = false;
-    const nfSwitch = document.getElementById('newfile-switch');
-    if (nfSwitch) nfSwitch.checked = false;
-    const nfNote = document.getElementById('newfile-note');
-    if (nfNote) nfNote.textContent = 'Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.';
+    alert(`✅ "${pkgName}" paketi kendi şifresiyle kasaya eklendi.`);
     renderFiles();
   }
 
@@ -1248,10 +1211,20 @@
       cnv.height = videoElement.videoHeight || 240;
       cnv.getContext('2d').drawImage(videoElement, 0, 0, cnv.width, cnv.height);
       const dataUrl = cnv.toDataURL('image/jpeg', 0.85);
-      document.getElementById('captured-object-img').src = dataUrl;
+      const imgEl = document.getElementById('captured-object-img');
+      const boxEl = document.getElementById('captured-object');
+      imgEl.src = dataUrl;
       document.getElementById('captured-object-label').textContent = '📸 Şifre nesnesi: ' + objName;
-      document.getElementById('captured-object').style.display = 'block';
-      localStorage.setItem('nk_password_object_img', dataUrl);
+      boxEl.style.display = 'block';
+      // GÜVENLİK: Fotoğraf sadece 2 sn görünsün, sonra kaybolsun ve bellekten silinsin.
+      // Kalıcı gösterim/kayıt, şifre nesnesinin başkaları tarafından görülmesine yol açar.
+      if (showCapturedObject._timer) clearTimeout(showCapturedObject._timer);
+      showCapturedObject._timer = setTimeout(() => {
+        boxEl.style.display = 'none';
+        imgEl.src = '';
+      }, 2000);
+      // Kalıcı kayıt YAPILMAZ; eski sürümlerden kalan kaydı da temizle
+      localStorage.removeItem('nk_password_object_img');
     } catch (e) { console.log('Nesne görüntüsü alınamadı:', e); }
   }
 
@@ -1298,37 +1271,20 @@
             const objName = topPrediction.className;
             
             if (screenType === 'setup') {
-              // GÖRSEL ŞİFRE OLUŞTURMA KURALLARI:
-              // 1) "Yeni Dosya" tiki KAPALIYSA hiçbir şifre oluşturulmaz/değiştirilmez
-              //    -> eski dosyaların görsel şifresi korunur.
-              // 2) Tik açıkken görsel şifre yalnızca BİR kez oluşturulur (oturum başına).
-              if (!newFileMode) {
-                detEl.innerHTML = `🔎 Görülen: <strong>${shortName}</strong> (%${confidence})<br><small>Görsel şifre oluşturmak için "🆕 Yeni Dosya" anahtarını açın. Eski dosyaların şifresi değişmez.</small>`;
-                detEl.style.color = 'var(--accent2)';
-              } else if (sessionVisualPass) {
-                detEl.innerHTML = `✅ Bu oturumun görsel şifresi zaten oluşturuldu: <strong>${sessionVisualPass.split(',')[0]}</strong><br><small>Yeni bir şifre için uygulamayı yenileyip "Yeni Dosya" tikini tekrar açın.</small>`;
-                detEl.style.color = 'var(--green)';
-              } else {
-                // BİR kez oluştur ve kilitle
-                sessionVisualPass = objName;
-                // Genel kasa kilidi henüz yoksa onu da bu nesneyle oluştur (ilk kurulum)
-                if (!passwordObject) {
-                  passwordObject = objName;
-                  localStorage.setItem('nk_password_object', objName);
-                  if (db && vaultID) {
-                    db.collection("vaults").doc(vaultID).set({ password: objName }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
-                  }
-                }
-                detEl.innerHTML = `🔒 GÖRSEL ŞİFRE OLUŞTURULDU!<br>Şifre nesnesi: <strong>${objName}</strong> (${confidence}%)<br><small>Bu şifre, bu oturumda eklenecek YENİ dosyalara uygulanacak. Eski dosyaların şifresi değişmedi.</small>`;
-                detEl.style.color = 'var(--green)';
-                const nfNote = document.getElementById('newfile-note');
-                if (nfNote) nfNote.textContent = '✅ Görsel şifre kaydedildi: ' + objName.split(',')[0] + '. Şimdi Kasa sekmesinden yeni dosyanızı ekleyin.';
-                updateLockStatus();
-                if (navigator.vibrate) navigator.vibrate(200);
-                playBeep(); showCapturedObject(videoElement, objName);
-                // Şifre oluşturuldu -> tam ekrandan çıkıp sayfaya dön (başarı 1.5 sn gösterilir)
-                setTimeout(exitFullscreenCam, 1500);
+              // Aynı nesne için tekrar tekrar bip çalma - sadece yeni/değişen nesnede
+              const isNewObject = passwordObject !== objName;
+              // Kurulum: şifre nesnesini kaydet + KALICI hale getir
+              passwordObject = objName;
+              localStorage.setItem('nk_password_object', objName);
+              // Buluta da kaydet (varsa)
+              if (db && vaultID) {
+                db.collection("vaults").doc(vaultID).set({ password: objName }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
               }
+              detEl.innerHTML = `🔒 KASA KİLİDİ OLUŞTURULDU!<br>Şifre nesnesi: <strong>${objName}</strong> (${confidence}%)`;
+              detEl.style.color = 'var(--green)';
+              updateLockStatus();
+              if (navigator.vibrate) navigator.vibrate(200);
+              if (isNewObject) { playBeep(); showCapturedObject(videoElement, objName); }
             } else if (screenType === 'unlock') {
               // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
               if (!passwordObject) {
@@ -1336,20 +1292,18 @@
                 detEl.style.color = 'var(--red)';
                 return;
               }
-              // Kilit açma: taranan nesne genel kasa şifresiyle VEYA herhangi bir
-              // eski dosyanın KENDİ görsel şifresiyle eşleşebilir. Her dosyanın
-              // kendine özel görsel şifresi geçerliliğini korur.
-              const matched = visualMatch(objName, passwordObject);
-              const matchedFiles = fileList.filter(f => f.visualPass && visualMatch(objName, f.visualPass));
-              if (matched || matchedFiles.length > 0) {
-                // Bu nesneyi bu oturumun açılan görsel şifreleri listesine ekle
-                if (!unlockedVisuals.some(v => visualMatch(v, objName))) unlockedVisuals.push(objName);
-                if (matched) isUnlocked = true;
-                const extra = matchedFiles.length > 0
-                  ? `<br><small>${matchedFiles.length} dosyanın görsel şifresi açıldı</small>` : '';
-                detEl.innerHTML = `🔓 KİLİT AÇILDI!<br><strong>${objName}</strong> eşleşti${extra}`;
+              // Kilit açma: esnek eşleşme (kısa ad bazlı - "water bottle, bottle" gibi
+              // çoklu isimlerde tam eşitlik aramak kilidi açılamaz hale getiriyordu)
+              const seen = objName.toLowerCase();
+              const saved = String(passwordObject).toLowerCase();
+              const savedShort = saved.split(',')[0].trim();
+              const seenShort = seen.split(',')[0].trim();
+              const matched = seen === saved || seenShort === savedShort ||
+                    seen.includes(savedShort) || saved.includes(seenShort);
+              if (matched) {
+                detEl.innerHTML = `🔓 KİLİT AÇILDI!<br><strong>${objName}</strong> eşleşti`;
                 detEl.style.color = 'var(--green)';
-                if (matchedFiles.length > 0) isUnlocked = true; // dosyaya özel şifre de kasayı açar
+                isUnlocked = true;
                 renderFiles();
                 
                 // 2 saniye sonra otomatik olarak Kasa sekmesine geç
