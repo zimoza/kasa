@@ -6,8 +6,10 @@
 <title>NesneKasa v2.3 - Cloud Sync</title>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 
 <style>
+  /* Önceki stiller aynen korunuyor, ek olarak bulut durumu göstergesi: */
   :root {
     --bg: #0a0a0f; --surface: #13131a; --surface2: #1c1c26;
     --border: rgba(255,255,255,0.07); --accent: #7c6dfa; --accent2: #a98cf8;
@@ -47,7 +49,9 @@
   .vault-id-box { background: var(--surface2); padding: 15px; border-radius: 12px; border: 1px solid var(--border); text-align: center; }
   input#vault-id-input { background: rgba(0,0,0,0.2); border: 1px solid var(--border); color: #fff; padding: 8px; border-radius: 6px; width: 100%; text-align: center; margin-top: 10px; font-family: monospace; }
 
-  /* LiDAR Banner */
+  /* ==== LiDAR ÖZELLİKLERİ İÇİN EK STİLLER ==== */
+
+  /* LiDAR öneri banner'ı - üstten kayarak giren kart */
   .lidar-banner {
     background: linear-gradient(135deg, var(--surface2), var(--surface));
     border: 1px solid var(--accent);
@@ -87,6 +91,7 @@
   .lidar-banner .lb-actions { display: flex; gap: 8px; }
   .lidar-banner .lb-actions .btn { padding: 11px; font-size: 13px; }
 
+  /* iOS tarzı toggle satırı */
   .lidar-toggle-row {
     display: flex; align-items: center; justify-content: space-between;
     background: var(--surface); border: 1px solid var(--border);
@@ -97,6 +102,7 @@
     display: flex; align-items: center; gap: 8px;
   }
 
+  /* iOS tarzı switch */
   .ios-switch { position: relative; display: inline-block; width: 52px; height: 30px; flex-shrink: 0; }
   .ios-switch input { opacity: 0; width: 0; height: 0; }
   .ios-switch .slider {
@@ -113,10 +119,12 @@
     background: var(--accent); border-color: var(--accent);
   }
   .ios-switch input:checked + .slider:before { transform: translateX(22px); }
+  /* Devre dışı (LiDAR yok) durumu */
   .ios-switch.disabled { opacity: 0.4; }
   .ios-switch.disabled .slider { cursor: not-allowed; }
   .lidar-toggle-row.disabled .lt-label { color: var(--text2); }
 
+  /* LiDAR aktif rozeti (yeşil parıltı) */
   .lidar-badge {
     font-size: 10px; padding: 4px 8px; border-radius: 12px;
     background: rgba(46,204,138,0.12); border: 1px solid rgba(46,204,138,0.4);
@@ -128,8 +136,10 @@
     50%      { box-shadow: 0 0 10px rgba(46,204,138,0.5); }
   }
 
+  /* Kurulum (şifre oluşturma) ekranı: kamera BÜYÜK gösterilsin */
   #screen-setup .cam-wrap { aspect-ratio: 3/4; min-height: 52dvh; }
 
+  /* ==== TAM EKRAN KAMERA MODU (Yeni Dosya tiki açılınca) ==== */
   .cam-fullscreen {
     position: fixed !important; inset: 0 !important; z-index: 998;
     border-radius: 0 !important; border: none !important;
@@ -137,7 +147,9 @@
     background: #000 !important;
     max-width: none !important; width: 100vw; height: 100dvh;
   }
-  .cam-fullscreen .cam-wrap { flex: 1; aspect-ratio: auto !important; min-height: 0 !important; }
+  .cam-fullscreen .cam-wrap {
+    flex: 1; aspect-ratio: auto !important; min-height: 0 !important;
+  }
   .cam-fullscreen video { width: 100%; height: 100%; object-fit: cover; }
   .cam-fullscreen #det-setup {
     background: rgba(0,0,0,0.75); font-size: 15px;
@@ -157,6 +169,7 @@
   }
   .cam-fullscreen .cam-fs-hint { display: block; }
 
+  /* Şifre nesnesinin yakalanan fotoğrafı */
   .captured-object {
     display: none; text-align: center; padding: 12px;
     border-top: 1px solid var(--border);
@@ -168,11 +181,13 @@
   }
   .captured-object .co-label { font-size: 12px; color: var(--green); font-weight: 700; margin-top: 6px; }
 
+  /* LiDAR derinlik bilgi kutusu */
   .lidar-depth-note {
     font-size: 12px; color: var(--green); text-align: center;
     padding: 8px 10px; border-top: 1px solid var(--border);
   }
 
+  /* ==== DOSYA GÖRÜNTÜLEYİCİ (modal) ==== */
   .viewer-overlay {
     display: none; position: fixed; inset: 0; z-index: 999;
     background: rgba(0,0,0,0.92);
@@ -212,6 +227,7 @@
       <input type="text" id="vault-id-input" placeholder="Örn: ugur-kasa-123" onchange="updateVaultID()">
     </div>
 
+    <!-- LiDAR öneri banner'ı (LiDAR tespit edilirse gösterilir) -->
     <div class="lidar-banner" id="lidar-banner">
       <div class="lb-head">
         <div class="lb-icon">🔬</div>
@@ -223,6 +239,7 @@
       </div>
     </div>
     
+    <!-- YENİ DOSYA modu: her oturumda yeni dosya için BİR kez görsel şifre oluşturulur -->
     <div class="lidar-toggle-row" id="newfile-row">
       <div class="lt-label">🆕 Yeni Dosya (görsel şifre oluştur)</div>
       <label class="ios-switch">
@@ -239,12 +256,14 @@
         <video id="video-setup" autoplay playsinline muted webkit-playsinline></video>
       </div>
       <div id="det-setup" style="padding:15px; text-align:center; color:var(--accent2); font-weight:bold;">Şifre nesnenizi gösterin...</div>
+      <!-- Şifre nesnesi kaydedilince yakalanan fotoğraf burada gösterilir -->
       <div class="captured-object" id="captured-object">
         <img id="captured-object-img" alt="Şifre nesnesi">
         <div class="co-label" id="captured-object-label"></div>
       </div>
     </div>
 
+    <!-- LiDAR modu aç/kapa toggle satırı -->
     <div class="lidar-toggle-row" id="lidar-toggle-row">
       <div class="lt-label">🔬 LiDAR Modu</div>
       <label class="ios-switch" id="lidar-switch-wrap">
@@ -262,6 +281,7 @@
     <input type="file" id="nkasa-input" style="display:none" onchange="importEncryptedFile(this)">
     <div style="font-size:11px;text-align:center;color:var(--text2);">📤🔐 ile paylaşılan şifreli paketler yalnızca bu uygulama ve paket şifresi ile açılabilir.</div>
 
+    <!-- Kapatınca sil / sakla seçeneği -->
     <div class="lidar-toggle-row" id="retention-row">
       <div class="lt-label">🗑️ Kapatınca Dosyaları Sil</div>
       <label class="ios-switch">
@@ -274,6 +294,7 @@
     <div id="vault-files" style="margin-top:20px;"></div>
   </div>
 
+  <!-- Dosya görüntüleyici modal -->
   <div class="viewer-overlay" id="viewer-overlay" onclick="if(event.target===this)closeViewer()">
     <div class="viewer-title" id="viewer-title"></div>
     <img id="viewer-img" alt="Önizleme" style="display:none;">
@@ -298,25 +319,34 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
 
 <script>
+  // --- FIREBASE YAPILANDIRMASI ---
+  // Firebase konsolundan aldığın bilgileri buraya eklemelisin:
   const firebaseConfig = {
     apiKey: "AIzaSyB84zMwaUWystxeS5tfJHQFu_BZwa0hsWU",
-    authDomain: "kalkan-764de.firebaseapp.com",
-    projectId: "kalkan-764de",
-    storageBucket: "kalkan-764de.firebasestorage.app",
-    messagingSenderId: "737424037143",
-    appId: "1:737424037143:web:72542378b4a9c518a6d352",
-    measurementId: "G-6144YKF5F3"
+  authDomain: "kalkan-764de.firebaseapp.com",
+  projectId: "kalkan-764de",
+  storageBucket: "kalkan-764de.firebasestorage.app",
+  messagingSenderId: "737424037143",
+  appId: "1:737424037143:web:72542378b4a9c518a6d352",
+  measurementId: "G-6144YKF5F3"
   };
 
-  let db, model;
+  let db, storage, model;
   let vaultID = localStorage.getItem('nk_vault_id') || "";
+  // Şifre nesnesini kalıcı yap (sayfa yenilense bile kilit açma çalışsın)
   let passwordObject = localStorage.getItem('nk_password_object') || null;
   let isUnlocked = false;
 
-  let newFileMode = false;
-  let sessionVisualPass = null;
-  let unlockedVisuals = [];
+  // ==== YENİ DOSYA GÖRSEL ŞİFRESİ (oturumluk) ====
+  // Her yeni dosya paketi için kurulumda BİR kez görsel şifre oluşturulur.
+  // Bu değişkenler KALICI DEĞİLDİR: sayfa yenilenince / uygulama kapanıp açılınca
+  // sıfırlanır -> yeni dosya için "Yeni Dosya" tiki açılıp yeni şifre oluşturulmalıdır.
+  // Eski (saklanmış) dosyaların kendi görsel şifresi (visualPass) ASLA değişmez.
+  let newFileMode = false;          // "Yeni Dosya" tiki açık mı?
+  let sessionVisualPass = null;     // Bu oturumda yeni dosya için oluşturulan görsel şifre
+  let unlockedVisuals = [];         // Kilit Aç ekranında bu oturumda taranan/eşleşen nesneler
 
+  // ==== TAM EKRAN KAMERA (şifre oluşturma sırasında) ====
   function enterFullscreenCam() {
     const cam = document.getElementById('cam-section');
     if (cam) cam.classList.add('cam-fullscreen');
@@ -338,6 +368,7 @@
         note.textContent = '📷 Kameraya bir nesne gösterin; yeni dosyanın görsel şifresi BİR kez kaydedilecek.';
         const d = document.getElementById('det-setup');
         if (d) { d.textContent = 'Yeni dosyanın şifre nesnesini gösterin...'; d.style.color = 'var(--accent2)'; }
+        // Kamerayı TAM EKRAN aç - şifre oluşunca otomatik sayfaya dönülür
         enterFullscreenCam();
       }
     } else {
@@ -346,27 +377,31 @@
     }
   }
 
+  // Esnek görsel eşleşme (kısa ad bazlı)
   function visualMatch(a, b) {
     if (!a || !b) return false;
     const x = String(a).toLowerCase(), y = String(b).toLowerCase();
     const xs = x.split(',')[0].trim(), ys = y.split(',')[0].trim();
     return x === y || xs === ys || x.includes(ys) || y.includes(xs);
   }
-
+  // Dosyanın görsel şifresi bu oturumda açıldı mı?
   function isFileVisuallyUnlocked(f) {
-    if (!f) return false;
-    if (!f.visualPass) return isUnlocked;
+    if (!f.visualPass) return isUnlocked; // eski kayıt (dosyaya özel şifre yok) -> genel kilit yeterli
     return unlockedVisuals.some(v => visualMatch(v, f.visualPass));
   }
-
+  // Dosyaları kalıcı tut (localStorage) - sayfa yenilense de kaybolmasın
   let fileList = JSON.parse(localStorage.getItem('nk_files') || '[]');
+
+  // ==== DOSYA SAKLAMA MODU (kapatınca sil / sakla) ====
+  // 'delete' -> uygulama kapatılırken dosyalar silinir (bir daha açılmaz)
+  // 'keep'   -> dosyalar kalıcı saklanır (IndexedDB) ve yeniden açılır
   let retentionMode = localStorage.getItem('nk_retention') || 'keep';
 
   function onRetentionToggle(el) {
     retentionMode = el.checked ? 'delete' : 'keep';
     localStorage.setItem('nk_retention', retentionMode);
     updateRetentionNote();
-    if (retentionMode === 'keep') persistFiles();
+    if (retentionMode === 'keep') persistFiles(); // sakla moduna geçince hemen kaydet
   }
   function updateRetentionNote() {
     const note = document.getElementById('retention-note');
@@ -377,6 +412,8 @@
       : '💾 Dosyalar cihazda saklanır; uygulama kapatılıp açılınca yeniden açılabilir.';
   }
 
+  // ==== IndexedDB (büyük dosya içerikleri localStorage'a sığmıyordu -
+  // dosya listede görünüp AÇILAMAMASININ nedeni buydu) ====
   function idbOpen() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open('nesnekasa-db', 1);
@@ -413,12 +450,15 @@
   }
 
   function persistFiles() {
-    if (retentionMode === 'delete') return;
+    if (retentionMode === 'delete') return; // sil modunda kalıcı kayıt yapılmaz
+    // İçerik dahil IndexedDB'ye kaydet (boyut limiti sorunu yok)
     idbSaveFiles(fileList).catch(e => console.log('IDB kayıt hatası:', e));
+    // Meta bilgiyi localStorage'a da yaz (hızlı ilk yükleme için)
     try { localStorage.setItem('nk_files', JSON.stringify(fileList.map(x => ({ ...x, data: null })))); }
     catch (e) { console.log('Yerel meta kaydı yapılamadı:', e); }
   }
 
+  // Sil modunda: uygulama kapatılırken tüm dosyaları temizle
   window.addEventListener('pagehide', () => {
     if (retentionMode === 'delete') {
       localStorage.removeItem('nk_files');
@@ -426,12 +466,16 @@
     }
   });
 
+  // ==== PAKET ŞİFRELERİ & KİŞİSEL (MASTER) ŞİFRE ====
+
+  // Basit hash (şifreleri düz metin saklamamak için - djb2)
   function simpleHash(str) {
     let h = 5381;
     for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
     return 'h' + h.toString(36);
   }
 
+  // Kişisel (master) şifre - ilk kullanımda oluşturulur
   function ensureMasterPassword() {
     let mh = localStorage.getItem('nk_master_hash');
     if (!mh) {
@@ -445,6 +489,7 @@
     return true;
   }
 
+  // Kişisel şifreyi doğrula
   function verifyMasterPassword() {
     if (!ensureMasterPassword()) return false;
     const p = prompt('🔐 Kişisel şifrenizi girin:');
@@ -456,6 +501,7 @@
     return true;
   }
 
+  // Paket şifresini doğrula (dosya işlemi öncesi) - şifrenin kendisini döndürür
   function askPackagePassword(f) {
     const p = prompt(`📦 "${f.pkgName || f.name}" paketinin şifresini girin:`);
     if (p === null) return null;
@@ -463,19 +509,16 @@
     return p;
   }
   function verifyPackagePassword(f) {
-    if (!f.passHash) return true;
+    if (!f.passHash) return true; // eski kayıtlar şifresiz olabilir
     return askPackagePassword(f) !== null;
   }
 
+  // ACİL ŞİFRE DEĞİŞİKLİĞİ: önce kişisel şifre doğrulanır
   function changePackagePassword(idx) {
+    if (!isUnlocked) { alert('Şifre değiştirmek için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
-    if (!isFileVisuallyUnlocked(f)) {
-      const passName = f.visualPass ? f.visualPass.split(',')[0] : 'Kasa Nesnesi';
-      alert(`🔒 Şifre değiştirmek için önce dosyanın görsel kilidini (${passName}) açın.`);
-      return;
-    }
-    if (!verifyMasterPassword()) return;
+    if (!verifyMasterPassword()) return; // kişisel şifre şart!
     const np = prompt(`"${f.pkgName || f.name}" paketi için YENİ şifreyi girin:`);
     if (!np) { alert('Şifre boş olamaz, değişiklik yapılmadı.'); return; }
     const newHash = simpleHash(np);
@@ -484,10 +527,11 @@
     if (!pkg) f.passHash = newHash;
     persistFiles();
     syncFilesToCloud();
-    alert('✅ Paket şifresi güncellendi.');
+    alert('✅ Paket şifresi acil olarak değiştirildi.');
     renderFiles();
   }
 
+  // Dosya meta verilerini buluta yaz (şifre hash'i dahil)
   function syncFilesToCloud() {
     if (db && vaultID) {
       db.collection("vaults").doc(vaultID).set({
@@ -495,6 +539,8 @@
       }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
   }
+
+  // ==== ŞİFRELİ PAYLAŞIM (.nkasa - sadece bu uygulama açabilir) ====
 
   const NKASA_MAGIC = 'NESNEKASA-ENC';
 
@@ -509,6 +555,7 @@
     return u8;
   }
 
+  // Paket şifresinden AES-GCM anahtarı türet (PBKDF2)
   async function deriveKey(password, salt) {
     const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey(
@@ -517,17 +564,16 @@
     );
   }
 
+  // ŞİFRELİ PAYLAŞ: dosya AES-256-GCM ile şifrelenip .nkasa paketi olarak gönderilir.
+  // Bu paket yalnızca NesneKasa uygulaması + doğru paket şifresi ile açılabilir.
   async function shareEncrypted(idx) {
+    if (!isUnlocked) { alert('Paylaşmak için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
-    if (!isFileVisuallyUnlocked(f)) {
-      const passName = f.visualPass ? f.visualPass.split(',')[0] : 'Kasa Nesnesi';
-      alert(`🔒 Paylaşmak için önce dosyanın görsel kilidini (${passName}) açın.`);
-      return;
-    }
-    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil. Dosyayı silip yeniden ekleyin.'); return; }
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
     if (!crypto || !crypto.subtle) { alert('⚠️ Şifreleme bu ortamda desteklenmiyor (HTTPS gerekli).'); return; }
 
+    // Paket şifresini iste ve doğrula - aynı şifre şifreleme anahtarı olur
     let pass = f.passHash ? askPackagePassword(f) : prompt('Bu şifreli paket için bir şifre belirleyin:');
     if (!pass) return;
 
@@ -556,11 +602,13 @@
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       }
+      alert('🔐 Dosya şifreli paket (.nkasa) olarak paylaşıldı.\nKarşı taraf yalnızca NesneKasa uygulaması ve paket şifresi ile açabilir.');
     } catch (e) {
       if (e && e.name !== 'AbortError') { console.error('Şifreli paylaşım hatası:', e); alert('Şifreli paylaşım başarısız: ' + e.message); }
     }
   }
 
+  // ŞİFRELİ PAKET AÇ: .nkasa dosyasını yalnızca bu uygulama + doğru şifre çözer
   async function importEncryptedFile(input) {
     const file = input.files && input.files[0];
     input.value = '';
@@ -585,6 +633,7 @@
       }
       const payload = JSON.parse(new TextDecoder().decode(plainBuf));
 
+      // Çözülen dosyayı kasaya ekle (paket şifresi korunur)
       fileList.push({
         name: payload.name, size: payload.size, date: Date.now(), data: payload.data,
         pkg: 'pkg_import_' + Date.now(), pkgName: env.pkgName || payload.name, passHash: simpleHash(pass)
@@ -599,6 +648,9 @@
     }
   }
 
+  // ==== /ŞİFRELİ PAYLAŞIM ====
+
+  // Kurulum ekranında kilit durumunu net göster
   function updateLockStatus() {
     let box = document.getElementById('lock-status');
     if (!box) {
@@ -619,6 +671,7 @@
     }
   }
 
+  // dataURL -> File (paylaşım için)
   function dataURLtoFile(dataUrl, name) {
     const arr = dataUrl.split(',');
     const mime = (arr[0].match(/:(.*?);/) || [,'application/octet-stream'])[1];
@@ -628,14 +681,40 @@
     return new File([u8], name, { type: mime });
   }
 
-  async function deleteFile(idx) {
+  // GÜVENLİK: Düz (şifresiz) paylaşım kapatıldı - her paylaşım şifreli pakete yönlendirilir
+  async function shareFile(idx) {
+    return shareEncrypted(idx);
+  }
+
+  // (Kullanım dışı - düz paylaşım güvenlik nedeniyle devre dışı bırakıldı)
+  async function shareFilePlain_DISABLED(idx) {
+    if (!isUnlocked) { alert('Paylaşmak için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
-    if (!isFileVisuallyUnlocked(f)) {
-      const passName = f.visualPass ? f.visualPass.split(',')[0] : 'Kasa Nesnesi';
-      alert(`🔒 Silmek için önce dosyanın görsel kilidini (${passName}) açın.`);
-      return;
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
+    // Karşıya göndermeden önce pakete özel şifreyi doğrula
+    if (!verifyPackagePassword(f)) return;
+    try {
+      const file = dataURLtoFile(f.data, f.name);
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: f.name });
+      } else {
+        // Paylaşım API yoksa indir (oradan istenen platforma gönderilebilir)
+        const a = document.createElement('a');
+        a.href = f.data; a.download = f.name;
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+    } catch (e) {
+      if (e && e.name !== 'AbortError') { console.error('Paylaşım hatası:', e); alert('Paylaşım başarısız: ' + e.message); }
     }
+  }
+
+  // Dosyayı sil (yerel + bulut)
+  async function deleteFile(idx) {
+    if (!isUnlocked) { alert('Silmek için önce kasayı açın (Kilit Aç).'); return; }
+    const f = fileList[idx];
+    if (!f) return;
+    // Silmeden önce pakete özel şifreyi doğrula
     if (!verifyPackagePassword(f)) return;
     if (!confirm(`"${f.name}" silinsin mi?`)) return;
     fileList.splice(idx, 1);
@@ -644,30 +723,39 @@
     renderFiles();
   }
 
-  let lidarAvailable = false;
-  let lidarActive = false;
-  let xrSession = null;
+  // --- LiDAR DURUM DEĞİŞKENLERİ ---
+  let lidarAvailable = false;   // Cihazda LiDAR sensörü var mı?
+  let lidarActive = false;      // LiDAR modu aktif mi?
+  let xrSession = null;         // Aktif WebXR AR oturumu (varsa)
 
+  // Uygulama Başlatma
   async function init() {
     document.getElementById('vault-id-input').value = vaultID;
+
+    // Saklama modu arayüzünü hazırla
     updateRetentionNote();
 
+    // Dosyaları geri yükle
     if (retentionMode === 'delete') {
+      // Sil modunda önceki oturumdan kalan her şeyi temizle
       fileList = [];
       localStorage.removeItem('nk_files');
       idbClearFiles();
       renderFiles();
     } else {
+      // Sakla modunda içerik dahil IndexedDB'den yükle (dosyalar açılabilir olur)
       try {
         const stored = await idbLoadFiles();
         if (stored && stored.length) { fileList = stored; renderFiles(); }
       } catch (e) { console.log('IDB yükleme hatası:', e); }
     }
     
+    // Firebase Başlatma (Eğer config doluysa)
     try {
       if (typeof firebase !== 'undefined' && firebaseConfig.apiKey) {
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
+        storage = firebase.storage();
         document.getElementById('sync-status').textContent = "Bulut: Hazır";
         document.getElementById('sync-status').classList.add('online');
         loadVaultFromCloud();
@@ -676,64 +764,97 @@
       console.log('Firebase başlatılamadı:', e);
     }
 
+    // Kamerayı HEMEN başlat (model yüklenmesini bekleme - iPhone'da
+    // izin istemi kullanıcı etkileşimine yakın olmalı, gecikme sorun yaratır)
     startCamera('setup');
 
+    // Modeli arka planda yükle
     const detEl = document.getElementById('det-setup');
     try {
       if (detEl) detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor...';
+      // TFJS backend'ini hazırla (iOS'ta WebGL sorun çıkarırsa CPU'ya düş)
       try { await tf.ready(); } catch (e) {
+        console.log('WebGL backend hazır değil, CPU deneniyor:', e);
         await tf.setBackend('cpu'); await tf.ready();
       }
       model = await mobilenet.load({ version: 2, alpha: 0.5 });
       if (detEl && detEl.textContent.indexOf('⏳') === 0) {
         detEl.textContent = 'Şifre nesnenizi gösterin...';
       }
+      console.log('✅ Model yüklendi, tarama hazır');
     } catch (e) {
       console.error('Model yüklenemedi:', e);
       if (detEl) {
-        detEl.textContent = '⚠️ Model yüklenemedi. İnternet bağlantısını kontrol edip yenileyin.';
+        detEl.textContent = '⚠️ Nesne tanıma modeli yüklenemedi (internet bağlantısını kontrol edin ve sayfayı yenileyin).';
         detEl.style.color = 'var(--red)';
       }
     }
 
+    // Model yüklendikten sonra LiDAR sensörünü tespit et
     await detectLiDAR();
     applyLidarUI();
   }
 
+  // ==== LiDAR TESPİT & YÖNETİMİ ====
+
+  // Cihaz Apple (iPhone/iPad) mi? LiDAR sensörü yalnızca Apple cihazlarda bulunur.
+  // Android'de ARCore, WebXR immersive-ar desteğini LiDAR OLMADAN da sağlar;
+  // bu yüzden Android'de WebXR kontrolü yanlış pozitif verir - tamamen atlanır.
   function isAppleDevice() {
     const ua = navigator.userAgent || '';
     const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    // iPadOS 13+ kendini Mac gibi tanıtır -> dokunmatik Mac = iPad
     const isIPadOS = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
     return isIOS || isIPadOS;
   }
 
+  // 1) Başlangıçta LiDAR sensörünü tespit et
   async function detectLiDAR() {
     lidarAvailable = false;
-    if (!isAppleDevice()) return false;
 
+    // SADECE Apple cihazlarda kontrol yap - Android'de LiDAR sensörü yoktur.
+    if (!isAppleDevice()) {
+      console.log('ℹ️ Apple cihaz değil (Android/masaüstü) - LiDAR yok, kontrol atlandı');
+      return false;
+    }
+
+    // WebXR immersive-ar desteği kontrolü
+    // (LiDAR'lı Apple cihazlarda -iPhone 12 Pro+, M1+ iPad Pro- true döner)
     try {
       if (navigator.xr && navigator.xr.isSessionSupported) {
         const supported = await navigator.xr.isSessionSupported('immersive-ar');
-        if (supported) lidarAvailable = true;
+        if (supported) {
+          lidarAvailable = true;
+          console.log('✅ LiDAR sensörü tespit edildi (Apple cihaz + WebXR AR destekli)');
+        } else {
+          console.log('ℹ️ Bu cihazda LiDAR sensörü bulunamadı');
+        }
+      } else {
+        console.log('ℹ️ WebXR desteği yok (eski tarayıcı veya LiDAR\'sız cihaz)');
       }
     } catch (e) {
-      console.log('WebXR kontrol edilemedi:', e);
+      console.log('⚠️ WebXR AR desteği kontrol edilemedi:', e);
     }
+
     return lidarAvailable;
   }
 
+  // LiDAR tespit sonucuna göre arayüzü hazırla
   function applyLidarUI() {
     const toggleRow = document.getElementById('lidar-toggle-row');
     const switchWrap = document.getElementById('lidar-switch-wrap');
     const switchInput = document.getElementById('lidar-switch');
 
     if (lidarAvailable) {
+      // Toggle'ı etkinleştir
       toggleRow.classList.remove('disabled');
       switchWrap.classList.remove('disabled');
       switchInput.disabled = false;
       toggleRow.removeAttribute('title');
+      // Öneri banner'ını kayarak göster
       showLidarBanner();
     } else {
+      // Toggle'ı devre dışı bırak + tooltip
       toggleRow.classList.add('disabled');
       switchWrap.classList.add('disabled');
       switchInput.disabled = true;
@@ -741,25 +862,38 @@
     }
   }
 
-  function showLidarBanner() { document.getElementById('lidar-banner').classList.add('show'); }
-  function hideLidarBanner() { document.getElementById('lidar-banner').classList.remove('show'); }
+  // 2) Öneri banner'ını göster / gizle
+  function showLidarBanner() {
+    document.getElementById('lidar-banner').classList.add('show');
+  }
+  function hideLidarBanner() {
+    document.getElementById('lidar-banner').classList.remove('show');
+  }
   function onBannerActivate() {
     activateLiDAR();
     hideLidarBanner();
+    // Toggle'ı da senkronize et
     document.getElementById('lidar-switch').checked = true;
   }
 
+  // 3) Toggle değişimi
   function onLidarToggle(el) {
     if (!lidarAvailable) { el.checked = false; return; }
     if (el.checked) activateLiDAR();
     else deactivateLiDAR();
   }
 
+  // 4) LiDAR'ı aktif et
   async function activateLiDAR() {
     lidarActive = true;
+
+    // Header'da yeşil rozet göster
     document.getElementById('lidar-badge').style.display = 'inline-block';
+
+    // Toggle senkron
     document.getElementById('lidar-switch').checked = true;
 
+    // WebXR immersive-ar oturumu ile derinlik verisi almayı dene
     let depthReady = false;
     try {
       if (navigator.xr && navigator.xr.isSessionSupported) {
@@ -768,9 +902,17 @@
           xrSession = await navigator.xr.requestSession('immersive-ar', {
             requiredFeatures: [],
             optionalFeatures: ['depth-sensing'],
-            depthSensing: { usagePreference: ['cpu-optimized'], dataFormatPreference: ['luminance-alpha'] }
+            depthSensing: {
+              usagePreference: ['cpu-optimized'],
+              dataFormatPreference: ['luminance-alpha']
+            }
           });
-          if (xrSession && xrSession.depthUsage) depthReady = true;
+          // Derinlik durumunu kontrol et
+          if (xrSession && xrSession.depthUsage) {
+            depthReady = true;
+          }
+          // Oturumu hemen sonlandır (arka planda tarama akışını bozmamak için);
+          // derinlik desteğinin varlığını doğrulamış olduk.
           if (xrSession) {
             xrSession.addEventListener('end', () => { xrSession = null; });
             await xrSession.end().catch(() => {});
@@ -778,27 +920,47 @@
         }
       }
     } catch (e) {
+      console.log('WebXR derinlik oturumu başlatılamadı:', e);
       depthReady = false;
     }
 
+    // Tespit alanındaki bilgiyi güncelle
     if (depthReady) {
       showDepthNote('🔬 LiDAR destekli mod: Derinlik verisi ile hassas tarama aktif');
     } else {
+      // Tarayıcı kısıtı nedeniyle derinliğe erişilemedi -> bilgilendirme
       showDepthNote('🔬 LiDAR destekli mod: Derinlik bilgisi ile tarama');
     }
+
+    // Hem kurulum hem kilit ekranındaki tarama metnini güncelle
     updateDetectionTexts('LiDAR + Kamera ile tarıyor...');
   }
 
+  // 5) LiDAR'ı devre dışı bırak
   function deactivateLiDAR() {
     lidarActive = false;
+
+    // Rozeti kaldır
     document.getElementById('lidar-badge').style.display = 'none';
+
+    // Toggle senkron
     document.getElementById('lidar-switch').checked = false;
-    if (xrSession) { xrSession.end().catch(() => {}); xrSession = null; }
+
+    // Varsa XR oturumunu kapat
+    if (xrSession) {
+      xrSession.end().catch(() => {});
+      xrSession = null;
+    }
+
+    // Derinlik notunu kaldır
     removeDepthNote();
+
+    // Normal tarama metnini geri getir
     document.getElementById('det-setup').textContent = 'Şifre nesnenizi gösterin...';
     document.getElementById('det-unlock').textContent = 'Kilit açmak için tara...';
   }
 
+  // Yardımcı: tespit metinlerini güncelle
   function updateDetectionTexts(txt) {
     const s = document.getElementById('det-setup');
     const u = document.getElementById('det-unlock');
@@ -806,13 +968,15 @@
     if (u) u.textContent = txt;
   }
 
+  // Yardımcı: cam-card altına derinlik notu ekle
   function showDepthNote(msg) {
     let note = document.getElementById('lidar-depth-note');
     if (!note) {
       note = document.createElement('div');
       note.id = 'lidar-depth-note';
       note.className = 'lidar-depth-note';
-      document.getElementById('cam-section').appendChild(note);
+      const camSection = document.getElementById('cam-section');
+      camSection.appendChild(note);
     }
     note.textContent = msg;
   }
@@ -821,20 +985,25 @@
     if (note) note.remove();
   }
 
+  // ==== /LiDAR ====
+
   function updateVaultID() {
     vaultID = document.getElementById('vault-id-input').value;
     localStorage.setItem('nk_vault_id', vaultID);
     if(db) loadVaultFromCloud();
   }
 
+  // Buluttan Veri Çekme
   async function loadVaultFromCloud() {
     if(!vaultID || !db) return;
     const doc = await db.collection("vaults").doc(vaultID).get();
     if(doc.exists) {
+        // Buluttaki şifre boşsa yereldekini ezme
         if (doc.data().password) {
           passwordObject = doc.data().password;
           localStorage.setItem('nk_password_object', passwordObject);
         }
+        // Bulut sadece META bilgi tutar - yerel içerik (data) kaybolmasın diye birleştir
         const cloudFiles = doc.data().files || [];
         const localByKey = {};
         fileList.forEach(x => { localByKey[x.name + '|' + x.date] = x; });
@@ -842,6 +1011,7 @@
           const loc = localByKey[cf.name + '|' + cf.date];
           return loc && loc.data ? { ...cf, data: loc.data } : cf;
         });
+        // Bulutta olmayan ama yerelde içeriği olan dosyaları da koru
         Object.values(localByKey).forEach(loc => {
           if (loc.data && !fileList.some(cf => cf.name === loc.name && cf.date === loc.date)) fileList.push(loc);
         });
@@ -849,64 +1019,80 @@
     }
   }
 
+  // Buluta Dosya Yükleme (Simüle Edilmiş/Hazırlanmış)
   async function uploadToCloud(input) {
     if(!vaultID) { alert("Önce bir Kasa Kimliği belirleyin!"); return; }
     if(!input.files.length) return;
 
+    // YENİ DOSYA için bu oturumda oluşturulmuş görsel şifre şart
     if (!sessionVisualPass) {
-      alert('⚠️ Yeni dosya eklemek için önce Kurulum sekmesinde "🆕 Yeni Dosya" anahtarını açıp bir nesne taratarak görsel şifre oluşturun.');
+      alert('⚠️ Yeni dosya eklemek için önce Kurulum sekmesinde "🆕 Yeni Dosya" anahtarını açıp bir nesne taratarak görsel şifre oluşturun.\n(Eski dosyaların görsel şifresi değişmez.)');
       input.value = '';
       return;
     }
 
+    // Kişisel şifre henüz yoksa ilk kullanımda oluşturt
     if (!ensureMasterPassword()) { input.value = ''; return; }
 
+    // Bu yükleme bir "dosya paketi" sayılır -> pakete özel isim ve şifre iste
     const pkgName = prompt('Bu dosya paketine bir isim verin:', 'Paket ' + new Date().toLocaleString('tr-TR')) || ('Paket-' + Date.now());
-    const pkgPass = prompt(`"${pkgName}" paketi için AYRI bir şifre belirleyin:`);
+    const pkgPass = prompt(`"${pkgName}" paketi için AYRI bir şifre belirleyin:\n(Karşıya gönderim/paylaşım öncesi bu şifre sorulacaktır)`);
     if (!pkgPass) { alert('Paket şifresi zorunludur. Yükleme iptal edildi.'); input.value = ''; return; }
     const pkgId = 'pkg_' + Date.now();
     const passHash = simpleHash(pkgPass);
 
     for (let f of input.files) {
+      // Dosya içeriğini dataURL olarak oku -> paylaşım ve indirme mümkün olsun
       const dataUrl = await new Promise((resolve, reject) => {
         const r = new FileReader();
         r.onload = () => resolve(r.result);
         r.onerror = reject;
         r.readAsDataURL(f);
       });
+      // Yeni dosyaya bu oturumda oluşturulan görsel şifre damgalanır (kalıcı, değişmez)
       fileList.push({ name: f.name, size: (f.size/1024).toFixed(1) + "KB", date: new Date().getTime(), data: dataUrl, pkg: pkgId, pkgName: pkgName, passHash: passHash, visualPass: sessionVisualPass });
     }
-    input.value = '';
+    input.value = ''; // aynı dosya tekrar seçilebilsin
 
     persistFiles();
     if(db) {
+        // Firestore'a sadece meta bilgi yaz (1MB belge limiti nedeniyle içerik yerel kalır)
         await db.collection("vaults").doc(vaultID).set({
             password: passwordObject,
             files: fileList.map(x => ({ name: x.name, size: x.size, date: x.date, pkg: x.pkg || null, pkgName: x.pkgName || null, passHash: x.passHash || null, visualPass: x.visualPass || null }))
         }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
     }
+    // Bu dosyanın görsel şifresi açık kalsın (yeni eklenen dosyaya erişilebilsin)
     if (!unlockedVisuals.some(v => visualMatch(v, sessionVisualPass))) unlockedVisuals.push(sessionVisualPass);
-    alert(`✅ "${pkgName}" paketi, görsel şifresi "${sessionVisualPass.split(',')[0]}" olarak kasaya eklendi.`);
-    
+    alert(`✅ "${pkgName}" paketi, görsel şifresi "${sessionVisualPass.split(',')[0]}" olarak kasaya eklendi.\nBir sonraki YENİ dosya için uygulamayı yenileyip "Yeni Dosya" tikini tekrar açın.`);
+    // Görsel şifre BİR dosya paketi için kullanıldı -> tüketildi.
+    // Yeni dosya için uygulama yenilenip "Yeni Dosya" tiki tekrar açılmalı.
     sessionVisualPass = null;
     newFileMode = false;
     const nfSwitch = document.getElementById('newfile-switch');
     if (nfSwitch) nfSwitch.checked = false;
     const nfNote = document.getElementById('newfile-note');
-    if (nfNote) nfNote.textContent = 'Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun.';
+    if (nfNote) nfNote.textContent = 'Yeni dosya eklemeden önce bu anahtarı açıp nesne taratarak o dosyaya özel görsel şifre oluşturun. Eski dosyaların görsel şifresi değişmez.';
     renderFiles();
   }
 
+  // ==== EKRAN YÖNETİMİ ====
+  
   function switchScreen(screenName, tabEl) {
+    // Tüm ekranları gizle
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    // Tüm sekme butonlarını pasif yap
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     
+    // Seçili ekran ve sekmeyi aktif et
     document.getElementById('screen-' + screenName).classList.add('active');
     if (tabEl) tabEl.classList.add('active');
     
+    // Ekran değiştiğinde kamerayı ilgili video elementine yönlendir
     if (screenName === 'setup' || screenName === 'unlock') {
       startCamera(screenName);
     } else {
+      // Kamera gerektirmeyen ekranlarda stream'i ve taramayı durdur (pil/performans)
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
         currentStream = null;
@@ -918,14 +1104,19 @@
     }
   }
 
+  // ==== KAMERA YÖNETİMİ ====
+  
   let currentStream = null;
   let scanInterval = null;
 
   async function startCamera(screenType) {
+    // Önceki stream varsa durdur
     if (currentStream) {
       currentStream.getTracks().forEach(track => track.stop());
       currentStream = null;
     }
+    
+    // Tarama interval'ı varsa temizle
     if (scanInterval) {
       clearInterval(scanInterval);
       scanInterval = null;
@@ -934,6 +1125,10 @@
     const videoElement = document.getElementById('video-' + screenType);
     const detEl = document.getElementById('det-' + screenType);
 
+    // --- getUserMedia erişimini güvenli şekilde çöz (HTTP / eski tarayıcı uyumu) ---
+    // iOS Safari, kamera erişimine SADECE güvenli bağlamda (HTTPS veya localhost) izin verir.
+    // HTTP üzerinden navigator.mediaDevices tanımsız olur; bu durumda eski API'lere düş,
+    // o da yoksa kullanıcıyı net şekilde bilgilendir.
     const legacyGUM = navigator.getUserMedia || navigator.webkitGetUserMedia ||
                     navigator.mozGetUserMedia || navigator.msGetUserMedia;
 
@@ -942,13 +1137,14 @@
                     !['localhost', '127.0.0.1'].includes(location.hostname));
       if (detEl) {
         detEl.innerHTML = insecure
-          ? '⚠️ Sayfayı <strong>HTTPS</strong> ile açın.'
-          : '⚠️ Tarayıcı kamera erişimini desteklemiyor.';
+          ? '⚠️ Kamera HTTP üzerinden açılamaz.<br>Tarayıcı güvenliği gereği sayfayı <strong>HTTPS</strong> ile açın (örn. https:// adresi veya localhost).'
+          : '⚠️ Bu tarayıcı kamera erişimini desteklemiyor.';
         detEl.style.color = 'var(--red)';
       }
       return;
     }
 
+    // Ortak getUserMedia sarmalayıcı (modern + eski API)
     function getMedia(constraints) {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         return navigator.mediaDevices.getUserMedia(constraints);
@@ -959,15 +1155,23 @@
     try {
       let stream;
       try {
+        // Arka kamerayı iste (iOS için environment)
         stream = await getMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
       } catch (e1) {
+        // Kısıtlamalar reddedilirse en basit haliyle tekrar dene (iPhone uyumu)
+        console.log('Detaylı kısıtlama başarısız, basit video isteniyor:', e1);
         stream = await getMedia({ video: true, audio: false });
       }
 
       currentStream = stream;
+      // iOS Safari uyumu: attribute'ları programatik olarak da garanti et
       videoElement.setAttribute('playsinline', '');
       videoElement.setAttribute('webkit-playsinline', '');
       videoElement.muted = true;
@@ -975,14 +1179,17 @@
       if ('srcObject' in videoElement) {
         videoElement.srcObject = stream;
       } else {
+        // Çok eski tarayıcılar için fallback
         videoElement.src = window.URL.createObjectURL(stream);
       }
 
+      // Video hazır olduğunda oynat ve nesne taramayı başlat
       const beginScan = () => {
         videoElement.play().catch(e => console.log('Video autoplay hatası:', e));
         startScanning(screenType, videoElement);
       };
       if (videoElement.readyState >= 1) {
+        // Metadata zaten yüklendiyse event bir daha tetiklenmez - hemen başlat
         beginScan();
       } else {
         videoElement.onloadedmetadata = beginScan;
@@ -990,6 +1197,8 @@
 
     } catch (err) {
       console.error('Kamera erişim hatası:', err);
+      // iOS: sekme değişiminde eski stream tam bırakılmadan yenisi istenince
+      // NotReadableError/AbortError oluşabilir -> kısa bekleyip bir kez daha dene
       if (err && (err.name === 'NotReadableError' || err.name === 'AbortError') && !startCamera._retried) {
         startCamera._retried = true;
         if (detEl) detEl.textContent = '⏳ Kamera yeniden başlatılıyor...';
@@ -997,9 +1206,13 @@
         return;
       }
       if (detEl) {
-        let msg = '⚠️ Kamera açılamadı: ' + (err && err.name ? err.name : 'hata');
+        let msg = '⚠️ Kamera açılamadı: ' + (err && err.name ? err.name : 'bilinmeyen hata');
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-          msg = '⚠️ Kamera izni reddedildi. İzinleri kontrol edin.';
+          msg = '⚠️ Kamera izni reddedildi. Ayarlar > Safari > Kamera bölümünden izin verin ve sayfayı yenileyin.';
+        } else if (err && err.name === 'NotFoundError') {
+          msg = '⚠️ Kamera bulunamadı.';
+        } else if (err && err.name === 'NotReadableError') {
+          msg = '⚠️ Kamera başka bir uygulama tarafından kullanılıyor.';
         }
         detEl.textContent = msg;
         detEl.style.color = 'var(--red)';
@@ -1007,6 +1220,9 @@
     }
   }
 
+  // ==== BİP SESİ & YAKALANAN NESNE GÖRÜNTÜSÜ ====
+
+  // Web Audio API ile kısa bip sesi çal
   function playBeep() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -1016,7 +1232,7 @@
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.value = 880;
+      osc.frequency.value = 880; // net bir bip tonu
       gain.gain.setValueAtTime(0.25, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
       osc.connect(gain); gain.connect(ctx.destination);
@@ -1024,6 +1240,7 @@
     } catch (e) { console.log('Bip çalınamadı:', e); }
   }
 
+  // Şifre nesnesinin yakalandığı kareyi göster
   function showCapturedObject(videoElement, objName) {
     try {
       const cnv = document.createElement('canvas');
@@ -1038,56 +1255,63 @@
     } catch (e) { console.log('Nesne görüntüsü alınamadı:', e); }
   }
 
+  // Nesne tanıma taraması başlat
   function startScanning(screenType, videoElement) {
     const detEl = document.getElementById('det-' + screenType);
+
+    // Çift tarama başlamasını engelle
     if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
 
-    let scanning = false;
+    let scanning = false; // classify bitmeden yeni tarama başlatma (iPhone'da üst üste binmeyi önler)
 
+    // Her 2 saniyede bir tarama yap (çok sık tarama mobilde performans sorununa yol açar)
     scanInterval = setInterval(async () => {
+      // Model henüz yüklenmediyse kullanıcıyı bilgilendir
       if (!model) {
         if (detEl && detEl.textContent.indexOf('⚠️') !== 0) {
-          detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor...';
+          detEl.textContent = '⏳ Nesne tanıma modeli yükleniyor, lütfen bekleyin...';
         }
         return;
       }
+      // Video karesi henüz hazır değilse veya önceki tarama sürüyorsa bekle
       if (!videoElement.videoWidth || videoElement.paused || scanning) return;
 
       scanning = true;
       try {
+        // iOS Safari'de video elementini doğrudan classify etmek bazen sessizce
+        // başarısız olur -> kareyi bir canvas'a çizip canvas'ı sınıflandır (daha güvenilir)
         if (!startScanning._canvas) startScanning._canvas = document.createElement('canvas');
         const cnv = startScanning._canvas;
-        cnv.width = 224;
-        cnv.height = 224;
-        const ctx = cnv.getContext('2d');
-
-        // Crop-to-fit: Görüntü basılmadan merkezden 1:1 kırpılarak aktarılır
-        const vw = videoElement.videoWidth;
-        const vh = videoElement.videoHeight;
-        const minDim = Math.min(vw, vh);
-        const sx = (vw - minDim) / 2;
-        const sy = (vh - minDim) / 2;
-        ctx.drawImage(videoElement, sx, sy, minDim, minDim, 0, 0, 224, 224);
-
+        cnv.width = 224; cnv.height = 224;
+        cnv.getContext('2d').drawImage(videoElement, 0, 0, 224, 224);
         const predictions = await model.classify(cnv);
+        console.log('Tarama sonucu:', predictions);
 
         if (predictions && predictions.length > 0) {
           const topPrediction = predictions[0];
           const confidence = (topPrediction.probability * 100).toFixed(0);
+          // İlk isim genelde yeterli (örn. "water bottle, bottle" -> "water bottle")
           const shortName = topPrediction.className.split(',')[0];
           
+          // Güvenilirlik eşiği (>%35 - mobil kameralarda %50 çok katıydı)
           if (topPrediction.probability > 0.35) {
             const objName = topPrediction.className;
             
             if (screenType === 'setup') {
+              // GÖRSEL ŞİFRE OLUŞTURMA KURALLARI:
+              // 1) "Yeni Dosya" tiki KAPALIYSA hiçbir şifre oluşturulmaz/değiştirilmez
+              //    -> eski dosyaların görsel şifresi korunur.
+              // 2) Tik açıkken görsel şifre yalnızca BİR kez oluşturulur (oturum başına).
               if (!newFileMode) {
-                detEl.innerHTML = `🔎 Görülen: <strong>${shortName}</strong> (%${confidence})<br><small>Görsel şifre için "🆕 Yeni Dosya" anahtarını açın.</small>`;
+                detEl.innerHTML = `🔎 Görülen: <strong>${shortName}</strong> (%${confidence})<br><small>Görsel şifre oluşturmak için "🆕 Yeni Dosya" anahtarını açın. Eski dosyaların şifresi değişmez.</small>`;
                 detEl.style.color = 'var(--accent2)';
               } else if (sessionVisualPass) {
-                detEl.innerHTML = `✅ Oturum görsel şifresi hazır: <strong>${sessionVisualPass.split(',')[0]}</strong>`;
+                detEl.innerHTML = `✅ Bu oturumun görsel şifresi zaten oluşturuldu: <strong>${sessionVisualPass.split(',')[0]}</strong><br><small>Yeni bir şifre için uygulamayı yenileyip "Yeni Dosya" tikini tekrar açın.</small>`;
                 detEl.style.color = 'var(--green)';
               } else {
+                // BİR kez oluştur ve kilitle
                 sessionVisualPass = objName;
+                // Genel kasa kilidi henüz yoksa onu da bu nesneyle oluştur (ilk kurulum)
                 if (!passwordObject) {
                   passwordObject = objName;
                   localStorage.setItem('nk_password_object', objName);
@@ -1095,34 +1319,40 @@
                     db.collection("vaults").doc(vaultID).set({ password: objName }, { merge: true }).catch(e => console.log('Bulut kayıt hatası:', e));
                   }
                 }
-                detEl.innerHTML = `🔒 GÖRSEL ŞİFRE OLUŞTURULDU!<br>Şifre nesnesi: <strong>${objName}</strong> (${confidence}%)`;
+                detEl.innerHTML = `🔒 GÖRSEL ŞİFRE OLUŞTURULDU!<br>Şifre nesnesi: <strong>${objName}</strong> (${confidence}%)<br><small>Bu şifre, bu oturumda eklenecek YENİ dosyalara uygulanacak. Eski dosyaların şifresi değişmedi.</small>`;
                 detEl.style.color = 'var(--green)';
                 const nfNote = document.getElementById('newfile-note');
-                if (nfNote) nfNote.textContent = '✅ Görsel şifre kaydedildi: ' + objName.split(',')[0] + '. Şimdi Kasa sekmesinden dosya ekleyin.';
+                if (nfNote) nfNote.textContent = '✅ Görsel şifre kaydedildi: ' + objName.split(',')[0] + '. Şimdi Kasa sekmesinden yeni dosyanızı ekleyin.';
                 updateLockStatus();
                 if (navigator.vibrate) navigator.vibrate(200);
-                playBeep();
-                showCapturedObject(videoElement, objName);
+                playBeep(); showCapturedObject(videoElement, objName);
+                // Şifre oluşturuldu -> tam ekrandan çıkıp sayfaya dön (başarı 1.5 sn gösterilir)
                 setTimeout(exitFullscreenCam, 1500);
               }
             } else if (screenType === 'unlock') {
+              // Şifre nesnesi hiç kaydedilmediyse kullanıcıyı yönlendir
               if (!passwordObject) {
-                detEl.innerHTML = `⚠️ Önce <strong>Kurulum</strong> sekmesinde bir şifre nesnesi kaydedin.`;
+                detEl.innerHTML = `⚠️ Önce <strong>Kurulum</strong> sekmesinde bir şifre nesnesi kaydedin.<br><small>Görülen: ${shortName} (%${confidence})</small>`;
                 detEl.style.color = 'var(--red)';
                 return;
               }
+              // Kilit açma: taranan nesne genel kasa şifresiyle VEYA herhangi bir
+              // eski dosyanın KENDİ görsel şifresiyle eşleşebilir. Her dosyanın
+              // kendine özel görsel şifresi geçerliliğini korur.
               const matched = visualMatch(objName, passwordObject);
               const matchedFiles = fileList.filter(f => f.visualPass && visualMatch(objName, f.visualPass));
-              
               if (matched || matchedFiles.length > 0) {
+                // Bu nesneyi bu oturumun açılan görsel şifreleri listesine ekle
                 if (!unlockedVisuals.some(v => visualMatch(v, objName))) unlockedVisuals.push(objName);
                 if (matched) isUnlocked = true;
-                const extra = matchedFiles.length > 0 ? `<br><small>${matchedFiles.length} dosyanın kilidi açıldı</small>` : '';
+                const extra = matchedFiles.length > 0
+                  ? `<br><small>${matchedFiles.length} dosyanın görsel şifresi açıldı</small>` : '';
                 detEl.innerHTML = `🔓 KİLİT AÇILDI!<br><strong>${objName}</strong> eşleşti${extra}`;
                 detEl.style.color = 'var(--green)';
-                if (matchedFiles.length > 0) isUnlocked = true;
+                if (matchedFiles.length > 0) isUnlocked = true; // dosyaya özel şifre de kasayı açar
                 renderFiles();
                 
+                // 2 saniye sonra otomatik olarak Kasa sekmesine geç
                 setTimeout(() => {
                   document.querySelector('.tab:nth-child(2)').click();
                 }, 2000);
@@ -1132,6 +1362,7 @@
               }
             }
           } else {
+            // Düşük güven: yine de ne gördüğünü canlı olarak göster
             const prefix = lidarActive ? '🔬 LiDAR + Kamera tarıyor' : '🔎 Taranıyor';
             detEl.innerHTML = `${prefix}...<br><small>Görülen: <strong>${shortName}</strong> (%${confidence})</small>`;
             detEl.style.color = 'var(--accent2)';
@@ -1139,6 +1370,7 @@
         }
       } catch (err) {
         console.error('Tarama hatası:', err);
+        // WebGL bağlamı düşmüş olabilir - CPU backend'e geçmeyi dene
         try { await tf.setBackend('cpu'); await tf.ready(); } catch (e2) {}
       } finally {
         scanning = false;
@@ -1146,17 +1378,16 @@
     }, 2000);
   }
 
+  // ==== DOSYA GÖRÜNTÜLEME & GALERİYE KAYDETME ====
+
   let viewerIdx = null;
 
+  // Dosyaya tıklanınca: kasa açıksa uygulama içinde önizle (resimler görüntülenir)
   function viewFile(idx) {
+    if (!isUnlocked) { alert('Görüntülemek için önce kasayı açın (Kilit Aç).'); return; }
     const f = fileList[idx];
     if (!f) return;
-    if (!isFileVisuallyUnlocked(f)) {
-      const passName = f.visualPass ? f.visualPass.split(',')[0] : 'Kasa Nesnesi';
-      alert(`🔒 Bu dosya kilitli!\nKilidi açmak için "Kilit Aç" sekmesinde şifre nesnesini (${passName}) taratın.`);
-      return;
-    }
-    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil. Dosyayı silip yeniden ekleyin.'); return; }
+    if (!f.data) { alert('Bu dosyanın içeriği kayıtlı değil (eski kayıt). Dosyayı silip yeniden ekleyin.'); return; }
 
     viewerIdx = idx;
     const isImage = /^data:image\//.test(f.data) || /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(f.name);
@@ -1177,6 +1408,8 @@
     viewerIdx = null;
   }
 
+  // İsteğe bağlı: resmi galeriye kaydet (mobilde paylaş menüsü -> "Görüntüyü Kaydet",
+  // masaüstünde indirme olarak çalışır)
   async function saveToGallery() {
     if (viewerIdx === null) return;
     const f = fileList[viewerIdx];
@@ -1184,6 +1417,7 @@
     try {
       const file = dataURLtoFile(f.data, f.name);
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        // iOS/Android: paylaş menüsünden "Görüntüyü Kaydet" ile galeriye eklenir
         await navigator.share({ files: [file], title: f.name });
       } else {
         const a = document.createElement('a');
@@ -1201,31 +1435,23 @@
       container.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;">Kasada henüz dosya yok.</div>';
       return;
     }
-    container.innerHTML = fileList.map((f, i) => {
-      const unlocked = isFileVisuallyUnlocked(f);
-      return `
-        <div class="file-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <div onclick="viewFile(${i})" style="cursor:pointer;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${unlocked ? 'text-decoration:underline;color:var(--text);' : 'color:var(--text2);'}" title="${unlocked ? 'Önizlemek için tıkla' : 'Kilitli (Nesne taratın)'}">
-            <span>${unlocked ? '📄' : '🔒'}</span> <strong>${f.name}</strong>
-            <div style="font-size:10px;color:var(--text2);">${f.pkgName ? f.pkgName + ' • ' : ''}${f.size}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-            ${unlocked ? `
-              <button onclick="changePackagePassword(${i})" title="Paket Şifresi Değiştir" style="background:var(--surface);border:1px solid var(--border);color:#fff;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12px;">🔑</button>
-              <button onclick="shareEncrypted(${i})" title="Şifreli Paylaş (.nkasa)" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px;">📤🔐</button>
-              <button onclick="deleteFile(${i})" title="Sil" style="background:var(--red);border:none;color:#fff;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12px;">🗑️</button>
-            ` : `
-              <span style="font-size:11px;color:var(--red);background:rgba(240,94,106,0.1);padding:4px 8px;border-radius:6px;border:1px solid rgba(240,94,106,0.25);">Kilitli</span>
-            `}
-          </div>
-        </div>
-      `;
-    }).join('');
+    container.innerHTML = fileList.map((f, i) => `
+      <div class="file-item">
+        <span onclick="viewFile(${i})" style="cursor:pointer;${isUnlocked ? 'text-decoration:underline;' : ''}" title="Görüntüle">${isUnlocked ? '📄' : '🔐'} ${f.name}</span>
+        <small style="margin-left:auto">${f.size}</small>
+        ${isUnlocked ? `
+          <button onclick="shareEncrypted(${i})" title="Şifreli Paylaş (.nkasa)" style="background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">📤🔐</button>
+          <button onclick="deleteFile(${i})" title="Sil" style="background:var(--red);border:none;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;">🗑️</button>
+        ` : ''}
+      </div>
+    `).join('');
   }
 
+  // Sayfa yüklendiğinde başlat
   init();
   updateLockStatus();
   renderFiles();
 </script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"f0f03d0605bf45f1a3b17cf7d5e6861f"}' crossorigin="anonymous"></script>
 </body>
 </html>
