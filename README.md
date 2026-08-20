@@ -25,10 +25,3 @@ NesneKasa tamamen istemci taraflı (front-end) çalışan tek dosyalık bir uygu
 ### Gereksinimler
 * **HTTPS Bağlantısı:** Tarayıcı güvenlik ilkeleri (Kamera erişimi ve Web Crypto API) gereği sayfanın `https://` protokolü veya `localhost` üzerinde çalışması zorunludur.
 * **Modern Web Tarayıcısı:** Chrome, Safari (iOS 14+), Firefox veya Edge.
-
-### Yerel Olarak Çalıştırma
-
-1. Projeyi klonlayın:
-   ```bash
-   git clone [https://github.com/kullaniciadi/nesnekasa.git](https://github.com/kullaniciadi/nesnekasa.git)
-   cd nesnekasa
